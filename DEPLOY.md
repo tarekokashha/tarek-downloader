@@ -1,5 +1,29 @@
 # Deploying Stash
 
+## Vercel
+
+Vercel cannot run the downloader — that needs a process which outlives a
+request and a real disk. What it can do is stand in front of one.
+
+`vercel.json` proxies every path to the engine, so `your-app.vercel.app`
+serves the real interface and the real API from whatever machine is actually
+running Stash. Because visitors only ever talk to the Vercel origin, there is
+no cross-origin anything: no CORS, no blocked downloads, and the interface is
+always whatever the engine is serving, with nothing to rebuild when it changes.
+
+Change the two `destination` values when the engine address changes.
+
+Two things to know. Every byte your users download passes through Vercel, so it
+counts against that account's bandwidth — fine for a handful of people, not for
+a public service. And the site only works while the engine is up.
+
+For a deployment where Vercel serves the interface *itself* rather than proxying
+it, set `STASH_ENGINE` and use `scripts/build-static.js` as the build command
+with `.vercel-static` as the output directory. That keeps large downloads off
+Vercel's bandwidth, at the cost of needing `CORS_ORIGINS` set on the engine.
+
+---
+
 ## How the pieces fit
 
 Stash is two things that can live apart:
