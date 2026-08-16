@@ -5,7 +5,6 @@
   "cleanUrls": true,
   "build": {
     "env": {
-      "//": "Address of the machine actually doing the downloading. Vercel serves this page; it cannot run the engine itself. Change this line and push to repoint it, or override STASH_ENGINE in the Vercel dashboard.",
       "STASH_ENGINE": "https://allergy-past-sim-automatically.trycloudflare.com"
     }
   },
