@@ -5,7 +5,7 @@ import jobs from './jobs.js';
 import log from './log.js';
 import { baseArgs, download, readPhase, fetchInfo } from './ytdlp.js';
 import { audioPreset, genericVideoSelector, bestThumbnail, AUDIO_SOURCE_SELECTOR } from './formats.js';
-import { resolveCatalog, matchTrack } from './catalog.js';
+import { resolveCatalog, matchTrack, enrichTracks } from './catalog.js';
 import { hasFfmpeg } from './binaries.js';
 import {
   collectOutputs, createArchive, safeFilename, tagAudio, fetchCover, formatBytes,
@@ -336,69 +336,102 @@ async function downloadOneTrack(job, track, { index, total, preset, coverPath, a
     progress: { item: index, itemCount: total },
   });
 
-  const match = await matchTrack(track, { signal: job.signal });
-  if (!match) {
+  const candidates = await matchTrack(track, { signal: job.signal });
+  if (!candidates.length) {
     return { ok: false, reason: `No confident match found for “${displayName}”.` };
-  }
-
-  if (match.score < 55) {
-    jobs.addWarning(job, `Low-confidence match for “${track.title}” — check the file.`);
   }
 
   jobs.update(job, { phase: `${index}/${total} · ${track.title}` });
 
   const numbered = total > 1 ? `${String(index).padStart(3, '0')} ` : '';
   const baseName = safeFilename(`${numbered}${displayName}`, `track-${index}`);
-
-  const args = [
-    ...baseArgs(),
-    '--no-playlist', '--no-mtime', '--no-part', '--no-overwrites',
-    '--concurrent-fragments', String(config.concurrentFragments),
-    '--paths', job.dir,
-    '--output', `${escapeTemplate(baseName)}.%(ext)s`,
-    '--format', AUDIO_SOURCE_SELECTOR,
-    '--extract-audio', '--audio-format', preset.format,
-  ];
-  if (preset.quality && preset.quality !== '0') args.push('--audio-quality', preset.quality);
-  if (config.maxFilesizeMb > 0) args.push('--max-filesize', `${config.maxFilesizeMb}M`);
+  const filePath = path.join(job.dir, `${baseName}.${preset.format}`);
 
   const perTrack = (percent) => {
     const done = index - 1;
     return Math.min(100, ((done + (percent ?? 0) / 100) / total) * 100);
   };
 
-  try {
-    await download(args, {
-      url: match.url,
-      signal: job.signal,
-      cwd: job.dir,
-      onProgress(update) {
-        if (update.type === 'postprocess') {
-          jobs.update(job, { status: 'processing', phase: `Converting · ${track.title}` });
-          return;
-        }
-        jobs.update(job, {
-          status: 'downloading',
-          progress: {
-            percent: perTrack(update.percent),
-            downloaded: update.downloaded,
-            total: update.total,
-            speed: update.speed,
-            eta: update.eta,
-          },
-        });
-      },
-    });
-  } catch (err) {
+  /*
+   * Walk the ranked matches until one actually downloads. The best-scoring
+   * upload is frequently age-restricted, region-locked or deleted, and giving
+   * up on the first failure loses a track that four other uploads could have
+   * satisfied.
+   */
+  let match = null;
+  let lastError = null;
+
+  for (const [attempt, candidate] of candidates.entries()) {
     if (job.signal.aborted) throw Object.assign(new Error('Canceled.'), { canceled: true });
-    return { ok: false, reason: `“${displayName}” failed: ${err.message}` };
+
+    if (attempt > 0) {
+      jobs.update(job, { phase: `${index}/${total} · retrying “${track.title}”` });
+    }
+
+    const args = [
+      ...baseArgs(),
+      '--no-playlist', '--no-mtime', '--no-part', '--no-overwrites',
+      '--concurrent-fragments', String(config.concurrentFragments),
+      '--paths', job.dir,
+      '--output', `${escapeTemplate(baseName)}.%(ext)s`,
+      '--format', AUDIO_SOURCE_SELECTOR,
+      '--extract-audio', '--audio-format', preset.format,
+    ];
+    if (preset.quality && preset.quality !== '0') args.push('--audio-quality', preset.quality);
+    if (config.maxFilesizeMb > 0) args.push('--max-filesize', `${config.maxFilesizeMb}M`);
+
+    try {
+      await download(args, {
+        url: candidate.url,
+        platform: 'youtube',
+        signal: job.signal,
+        cwd: job.dir,
+        onProgress(update) {
+          if (update.type === 'postprocess') {
+            jobs.update(job, { status: 'processing', phase: `Converting · ${track.title}` });
+            return;
+          }
+          jobs.update(job, {
+            status: 'downloading',
+            progress: {
+              percent: perTrack(update.percent),
+              downloaded: update.downloaded,
+              total: update.total,
+              speed: update.speed,
+              eta: update.eta,
+            },
+          });
+        },
+      });
+    } catch (err) {
+      if (job.signal.aborted) throw Object.assign(new Error('Canceled.'), { canceled: true });
+      lastError = err;
+      // A partial file from the failed attempt would block --no-overwrites.
+      await fsp.rm(filePath, { force: true }).catch(() => {});
+      continue;
+    }
+
+    try {
+      await fsp.access(filePath);
+      match = candidate;
+      break;
+    } catch {
+      lastError = new Error('produced no file');
+    }
   }
 
-  const filePath = path.join(job.dir, `${baseName}.${preset.format}`);
-  try {
-    await fsp.access(filePath);
-  } catch {
-    return { ok: false, reason: `“${displayName}” produced no file.` };
+  if (!match) {
+    const detail = lastError?.message ?? 'every candidate failed';
+    return {
+      ok: false,
+      reason: candidates.length > 1
+        ? `“${displayName}” failed after trying ${candidates.length} sources: ${detail}`
+        : `“${displayName}” failed: ${detail}`,
+    };
+  }
+
+  if (match.score < 55) {
+    jobs.addWarning(job, `Low-confidence match for “${track.title}” — check the file.`);
   }
 
   if (hasFfmpeg()) {
@@ -424,7 +457,7 @@ export async function runCatalogJob(job, plan) {
   await fsp.mkdir(job.dir, { recursive: true });
 
   jobs.update(job, { status: 'preparing', phase: 'Reading the track list' });
-  const catalog = await resolveCatalog(plan.analysis);
+  const catalog = await resolveCatalog(plan.analysis, { enrich: false, signal: job.signal });
 
   let tracks = catalog.tracks;
   if (plan.items?.length) {
@@ -432,6 +465,11 @@ export async function runCatalogJob(job, plan) {
     tracks = tracks.filter((_, i) => wanted.has(i + 1));
   }
   if (!tracks.length) throw new Error('No tracks were selected.');
+
+  // Complete the tags before anything is written to disk. Enriching only the
+  // selected tracks keeps a 3-of-50 download from querying all fifty.
+  jobs.update(job, { phase: 'Looking up album details' });
+  tracks = await enrichTracks(tracks, { signal: job.signal });
 
   const total = tracks.length;
   const preset = audioPreset(plan.quality);
@@ -456,9 +494,13 @@ export async function runCatalogJob(job, plan) {
     if (job.signal.aborted) throw Object.assign(new Error('Canceled.'), { canceled: true });
 
     const track = tracks[i];
+
+    // Prefer the 600px artwork found during enrichment: Spotify's public embed
+    // only hands out a 300px thumbnail, which looks poor in any music app.
+    const preferredArt = track.coverUpgrade ?? track.cover;
     let trackCover = coverPath;
-    if (track.cover && track.cover !== catalog.cover && hasFfmpeg()) {
-      trackCover = (await fetchCover(track.cover, path.join(job.dir, `.cover-${i}.jpg`))) ?? coverPath;
+    if (preferredArt && preferredArt !== catalog.cover && hasFfmpeg()) {
+      trackCover = (await fetchCover(preferredArt, path.join(job.dir, `.cover-${i}.jpg`))) ?? coverPath;
     }
 
     const result = await downloadOneTrack(job, track, {

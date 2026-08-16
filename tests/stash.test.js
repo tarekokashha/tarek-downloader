@@ -386,7 +386,7 @@ test('an unrecognised error still surfaces something useful', () => {
 
 /* ═══════════════════ Catalogue match scoring ═══════════════════ */
 
-const { scoreCandidate, normalise, variantSet } = catalogInternals;
+const { scoreCandidate, normalise, variantSet, rankCandidates } = catalogInternals;
 
 const track = { title: 'Never Gonna Give You Up', artists: ['Rick Astley'], durationSec: 213 };
 
@@ -453,6 +453,41 @@ test('reaction and tutorial videos are pushed far down', () => {
   const reaction = { title: 'Never Gonna Give You Up REACTION!!', channel: 'reactor', duration: 213 };
   const plain = { title: 'Never Gonna Give You Up', channel: 'someone', duration: 213 };
   assert.ok(scoreCandidate(reaction, track) < scoreCandidate(plain, track));
+});
+
+test('a track keeps backup sources so one bad upload cannot kill it', () => {
+  // The real failure: the top match was age-restricted, and because only one
+  // candidate was ever returned the whole track was written off.
+  const pool = [
+    { id: 'a', title: 'Never Gonna Give You Up', channel: 'Rick Astley - Topic', duration: 213 },
+    { id: 'b', title: 'Rick Astley - Never Gonna Give You Up', channel: 'RickAstleyVEVO', duration: 213 },
+    { id: 'c', title: 'Never Gonna Give You Up', channel: 'someuploader', duration: 214 },
+    { id: 'd', title: 'Totally Unrelated Song', channel: 'nobody', duration: 900 },
+  ];
+
+  const ranked = rankCandidates(pool, track);
+  assert.ok(ranked.length >= 3, 'must return alternatives, not just a winner');
+  assert.ok(!ranked.some((c) => c.url.includes('/watch?v=d')), 'the unrelated track is excluded');
+
+  for (let i = 1; i < ranked.length; i += 1) {
+    assert.ok(ranked[i - 1].score >= ranked[i].score, 'candidates must be ordered best first');
+  }
+  assert.ok(ranked.every((c) => c.url.startsWith('https://')), 'every candidate needs a usable URL');
+});
+
+test('ranking returns nothing when every option is wrong', () => {
+  const pool = [
+    { id: 'x', title: 'Some Other Song', channel: 'nobody', duration: 999 },
+    { id: 'y', title: 'Podcast Episode 44', channel: 'a podcast', duration: 3600 },
+  ];
+  assert.equal(rankCandidates(pool, track).length, 0);
+});
+
+test('ranking is capped so one track cannot spawn endless retries', () => {
+  const pool = Array.from({ length: 30 }, (_, i) => ({
+    id: `v${i}`, title: 'Never Gonna Give You Up', channel: 'Rick Astley - Topic', duration: 213,
+  }));
+  assert.ok(rankCandidates(pool, track).length <= 5);
 });
 
 test('variantSet detects the traits that must match', () => {

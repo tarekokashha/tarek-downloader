@@ -18,9 +18,11 @@ import log from './log.js';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
-async function httpGet(url, { headers = {}, timeout = 20_000, as = 'text' } = {}) {
+async function httpGet(url, { headers = {}, timeout = 20_000, as = 'text', signal } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const relay = () => controller.abort();
+  signal?.addEventListener('abort', relay, { once: true });
   try {
     const res = await fetch(url, {
       headers: { 'user-agent': USER_AGENT, 'accept-language': 'en-US,en;q=0.9', ...headers },
@@ -35,6 +37,7 @@ async function httpGet(url, { headers = {}, timeout = 20_000, as = 'text' } = {}
     return as === 'json' ? await res.json() : await res.text();
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', relay);
   }
 }
 
@@ -423,13 +426,113 @@ async function resolveAppleMusic(rawUrl) {
   throw new Error('Could not read that Apple Music link.');
 }
 
+/* ────────────────────── Free metadata enrichment ────────────────────── */
+
+/**
+ * Fills gaps using Apple's public iTunes Search API — no key, no account.
+ *
+ * Spotify's embed page (the path used when you have no API credentials) gives
+ * a title, artist, cover and duration but no album, release year or track
+ * number. Rather than making that a permanent "add credentials" nag, the same
+ * facts are fetched from a source that needs no signup, and the artwork comes
+ * back at 600px instead of the embed's 300px.
+ *
+ * Only ever *fills* — anything the catalogue already supplied is left alone.
+ */
+async function enrichFromAppleCatalog(track, { signal } = {}) {
+  const artist = (track.artists ?? [])[0] ?? '';
+  const term = `${artist} ${track.title}`.trim();
+  if (term.length < 3) return track;
+
+  let results;
+  try {
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=8`;
+    const data = await httpGet(url, { as: 'json', timeout: 12_000, signal });
+    results = Array.isArray(data.results) ? data.results : [];
+  } catch {
+    return track; // enrichment is a bonus, never a failure
+  }
+  if (!results.length) return track;
+
+  const wantedTitle = tokens(track.title);
+  const wantedArtist = tokens(artist);
+  const target = Number(track.durationSec);
+
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const row of results) {
+    const seconds = Math.round((row.trackTimeMillis ?? 0) / 1000);
+    let score = 0;
+
+    // Duration decides between a track and its slowed/extended/remixed twin.
+    if (Number.isFinite(target) && target > 0 && seconds > 0) {
+      const delta = Math.abs(seconds - target);
+      if (delta > 12) continue;          // a different cut of the song
+      score += (12 - delta) * 4;
+    }
+
+    score += overlap(wantedTitle, tokens(row.trackName ?? '')) * 30;
+    score += overlap(wantedArtist, tokens(row.artistName ?? '')) * 20;
+
+    // A single named "<title> - Single" is a weaker album fact than a real LP.
+    if (/ - single$/i.test(row.collectionName ?? '')) score -= 4;
+    // Compilations and DJ mixes name the wrong album for a track.
+    if (/\b(dj mix|compilation|mixed)\b/i.test(row.collectionName ?? '')) score -= 25;
+
+    if (score > bestScore) { bestScore = score; best = row; }
+  }
+
+  if (!best || bestScore < 20) return track;
+
+  const artwork = typeof best.artworkUrl100 === 'string'
+    ? best.artworkUrl100.replace(/\/\d+x\d+bb\.jpg$/, '/600x600bb.jpg')
+    : null;
+
+  return {
+    ...track,
+    album: track.album ?? best.collectionName ?? null,
+    year: track.year ?? String(best.releaseDate ?? '').slice(0, 4) ?? null,
+    trackNumber: track.trackNumber ?? best.trackNumber ?? null,
+    trackTotal: track.trackTotal ?? best.trackCount ?? null,
+    genre: track.genre ?? best.primaryGenreName ?? null,
+    cover: track.cover ?? artwork,
+    /** Higher-resolution art than the Spotify embed hands out. */
+    coverUpgrade: artwork,
+    enriched: true,
+  };
+}
+
+/**
+ * Enriches a track list, but only where something is actually missing, and
+ * only a few at a time so a 50-track playlist does not hammer the API.
+ */
+export async function enrichTracks(tracks, { signal } = {}) {
+  const needsWork = (t) => !t.album || !t.year || !t.trackNumber;
+  if (!tracks.some(needsWork)) return tracks;
+
+  const output = [...tracks];
+  const BATCH = 4;
+
+  for (let i = 0; i < output.length; i += BATCH) {
+    if (signal?.aborted) break;
+    const slice = output.slice(i, i + BATCH);
+    const done = await Promise.all(
+      slice.map((t) => (needsWork(t) ? enrichFromAppleCatalog(t, { signal }) : Promise.resolve(t))),
+    );
+    for (let k = 0; k < done.length; k += 1) output[i + k] = done[k];
+  }
+
+  return output;
+}
+
 /* ─────────────────────────── Public surface ─────────────────────────── */
 
 /**
  * Resolves a catalogue link to a normalised track list.
  * @returns {Promise<{kind:string,name:string,subtitle:string,cover:string|null,tracks:object[]}>}
  */
-export async function resolveCatalog(analysis) {
+export async function resolveCatalog(analysis, { enrich = 'auto', signal } = {}) {
   const result =
     analysis.platform === 'spotify'
       ? await resolveSpotify(analysis.url)
@@ -437,6 +540,24 @@ export async function resolveCatalog(analysis) {
 
   if (!result.tracks?.length) throw new Error('No tracks were found at that link.');
   result.tracks = result.tracks.filter((t) => t && t.title);
+
+  /*
+   * Fill missing album/year/track-number facts for free. On the preview path
+   * this is limited to short lists so the card still appears instantly; the
+   * download path enriches everything, because that is where the tags land.
+   */
+  const shouldEnrich = enrich === true || (enrich === 'auto' && result.tracks.length <= 12);
+  if (shouldEnrich) {
+    result.tracks = await enrichTracks(result.tracks, { signal });
+    if (result.tracks.some((t) => t.enriched)) {
+      result.degraded = false;
+      result.enriched = true;
+      // Prefer the 600px artwork over the embed's 300px thumbnail.
+      const upgrade = result.tracks.find((t) => t.coverUpgrade)?.coverUpgrade;
+      if (upgrade && result.tracks.length === 1) result.cover = upgrade;
+    }
+  }
+
   return result;
 }
 
@@ -563,8 +684,8 @@ function scoreCandidate(candidate, track) {
 }
 
 /**
- * Finds the best YouTube recording for a catalogue track.
- * @returns {Promise<{url:string,title:string,channel:string,score:number}|null>}
+ * Finds YouTube recordings for a catalogue track, best first.
+ * @returns {Promise<Array<{url:string,title:string,channel:string,score:number}>>}
  */
 export async function matchTrack(track, { signal } = {}) {
   const artist = (track.artists ?? [])[0] ?? '';
@@ -586,39 +707,41 @@ export async function matchTrack(track, { signal } = {}) {
       seen.set(id, entry);
     }
     // A confident hit on the first query means we can stop searching.
-    const early = pickBest([...seen.values()], track);
-    if (early && early.score >= 95) return early;
+    const early = rankCandidates([...seen.values()], track);
+    if (early[0] && early[0].score >= 95) return early;
   }
 
-  return pickBest([...seen.values()], track);
+  return rankCandidates([...seen.values()], track);
 }
 
-function pickBest(candidates, track) {
-  let best = null;
-  let bestScore = -Infinity;
+/**
+ * All viable matches, best first.
+ *
+ * Returning a list rather than a single winner matters: the top match is
+ * regularly age-restricted, region-locked or freshly deleted, and without an
+ * alternative the whole track is written off even though four other uploads of
+ * the same song were sitting right behind it.
+ */
+function rankCandidates(candidates, track) {
+  return candidates
+    .map((candidate) => ({ candidate, score: scoreCandidate(candidate, track) }))
+    .filter(({ score }) => score >= 25)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map(({ candidate, score }) => {
+      const id = candidate.id ?? '';
+      const url = candidate.url && String(candidate.url).startsWith('http')
+        ? candidate.url
+        : `https://www.youtube.com/watch?v=${id}`;
 
-  for (const candidate of candidates) {
-    const score = scoreCandidate(candidate, track);
-    if (score > bestScore) {
-      bestScore = score;
-      best = candidate;
-    }
-  }
-
-  if (!best || bestScore < 25) return null;
-
-  const id = best.id ?? '';
-  const url = best.url && String(best.url).startsWith('http')
-    ? best.url
-    : `https://www.youtube.com/watch?v=${id}`;
-
-  return {
-    url,
-    title: best.title ?? '',
-    channel: best.channel ?? best.uploader ?? '',
-    duration: Number(best.duration) || null,
-    score: Math.round(bestScore),
-  };
+      return {
+        url,
+        title: candidate.title ?? '',
+        channel: candidate.channel ?? candidate.uploader ?? '',
+        duration: Number(candidate.duration) || null,
+        score: Math.round(score),
+      };
+    });
 }
 
-export const catalogInternals = { normalise, scoreCandidate, variantSet };
+export const catalogInternals = { normalise, scoreCandidate, variantSet, rankCandidates };

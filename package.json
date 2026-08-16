@@ -12,6 +12,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "doctor": "node scripts/setup.js --check",
+    "tunnel": "cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate",
     "test": "node --test \"tests/**/*.test.js\""
   },
   "dependencies": {

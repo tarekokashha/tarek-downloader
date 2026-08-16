@@ -1,4 +1,88 @@
-# Deploying Stash on Northflank
+# Deploying Stash
+
+Two routes. **Cloudflare Tunnel is the better one for a downloader** — it runs
+on your own connection, so sites see a residential IP instead of a cloud range
+and stop bot-checking you. Northflank is the answer if you need it up when your
+machine is off.
+
+---
+
+# Route 1 — Cloudflare Tunnel (recommended)
+
+Free, no card, no bandwidth meter, and the most reliable downloads you can get.
+`cloudflared` is already installed.
+
+## Try it right now
+
+```bash
+npm start
+```
+
+```bash
+npm run tunnel
+```
+
+The second command prints a public HTTPS URL like
+`https://something-random.trycloudflare.com`. It works immediately and needs no
+account — but the name is random and changes every restart.
+
+## Make the URL permanent
+
+This needs a domain on your Cloudflare account. One-time setup:
+
+```bash
+cloudflared tunnel login
+```
+
+Pick your domain in the browser window that opens, then:
+
+```bash
+cloudflared tunnel create stash
+```
+
+```bash
+cloudflared tunnel route dns stash downloader.yourdomain.com
+```
+
+Create `%USERPROFILE%\.cloudflared\config.yml`:
+
+```yaml
+tunnel: stash
+credentials-file: C:\Users\tarek\.cloudflared\<TUNNEL-ID>.json
+
+ingress:
+  - hostname: downloader.yourdomain.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404
+```
+
+Then run it:
+
+```bash
+cloudflared tunnel run stash
+```
+
+`downloader.yourdomain.com` now points at your machine, with Cloudflare's HTTPS
+in front. To have it start with Windows and stay up:
+
+```bash
+cloudflared service install
+```
+
+## Set a password first
+
+A tunnel puts your machine on the public internet. **Add `ACCESS_PASSWORD` to
+your `.env` before you leave one running**, or anyone with the URL can queue
+downloads on your connection. Stash prints a warning when it is exposed without
+one.
+
+You can also put Cloudflare Access in front of the hostname (*Zero Trust →
+Access → Applications*) to require a login with your email — free for up to
+50 users, and stronger than a shared password.
+
+---
+
+# Route 2 — Northflank
 
 Northflank's free Sandbox tier gives you **always-on compute with no sleeping**
 and two free services — which, since Railway and Fly closed their free tiers and

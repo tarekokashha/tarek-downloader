@@ -82,7 +82,7 @@ function normaliseEntries(entries = []) {
 export async function resolveLink(analysis, { forcePlaylist = false, container = 'mp4', signal } = {}) {
   /* ── DRM-locked catalogue services ───────────────────────────────── */
   if (analysis.isCatalog) {
-    const catalog = await resolveCatalog(analysis);
+    const catalog = await resolveCatalog(analysis, { signal });
     const tracks = catalog.tracks;
     const totalSeconds = tracks.reduce((sum, t) => sum + (t.durationSec ?? 0), 0);
 
@@ -119,6 +119,8 @@ export async function resolveLink(analysis, { forcePlaylist = false, container =
           'Matches are scored on duration, artist and channel, and anything doubtful is reported rather than guessed.',
       },
       degraded: Boolean(catalog.degraded),
+      /** Album, year and track numbers were recovered without credentials. */
+      enriched: Boolean(catalog.enriched),
       totalAvailable: catalog.totalAvailable ?? tracks.length,
     };
   }
