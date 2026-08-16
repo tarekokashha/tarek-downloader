@@ -108,26 +108,56 @@ export function validate(text) {
   return summary;
 }
 
+/** A cookie is uniquely identified by domain + path + name. */
+const keyOf = (parts) => `${parts[0]}\t${parts[2]}\t${parts[5]}`;
+
+function toMap(text) {
+  const map = new Map();
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split('\t');
+    if (parts.length < 7) continue;
+    map.set(keyOf(parts), line);
+  }
+  return map;
+}
+
 /**
  * Stores the cookie file and points yt-dlp at it immediately.
  * `baseArgs()` reads config.cookiesFile on every call, so no restart is needed.
+ *
+ * Pastes are *merged*, not replaced. The export extensions hand you one site
+ * at a time, so pasting TikTok after Instagram would otherwise silently sign
+ * you out of Instagram again.
  */
-export async function install(text) {
-  const summary = validate(text);
+export async function install(text, { merge = true } = {}) {
+  validate(text);
 
-  const header = text.startsWith('# Netscape') || text.startsWith('# HTTP Cookie File')
-    ? ''
-    : '# Netscape HTTP Cookie File\n';
+  const incoming = toMap(text);
+  let combined = incoming;
 
-  await fsp.writeFile(COOKIE_PATH, header + text.trimEnd() + '\n', { mode: 0o600 });
+  if (merge && fs.existsSync(COOKIE_PATH)) {
+    try {
+      const existing = toMap(await fsp.readFile(COOKIE_PATH, 'utf8'));
+      // Newly pasted cookies win over stale ones with the same identity.
+      for (const [key, line] of incoming) existing.set(key, line);
+      combined = existing;
+    } catch { /* unreadable previous file — just take the new one */ }
+  }
+
+  const body = ['# Netscape HTTP Cookie File', ...combined.values()].join('\n');
+  await fsp.writeFile(COOKIE_PATH, `${body}\n`, { mode: 0o600 });
+
   config.cookiesFile = COOKIE_PATH;
   // A browser-based source cannot coexist with an explicit file.
   config.cookiesFromBrowser = '';
 
+  const summary = summarise(body);
   const named = summary.sites.filter((s) => s.present).map((s) => s.label);
-  log.ok(`Cookies installed — ${summary.total} cookies across ${summary.domains} domains${named.length ? ` (${named.join(', ')})` : ''}`);
+  log.ok(`Cookies installed — ${summary.total} across ${summary.domains} domains${named.length ? ` (${named.join(', ')})` : ''}`);
 
-  return summary;
+  return { ...summary, added: incoming.size };
 }
 
 export async function remove() {
