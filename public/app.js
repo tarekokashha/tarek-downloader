@@ -52,6 +52,7 @@ const ICON = {
   retry: '<svg viewBox="0 0 16 16" fill="none"><path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13.4 2.2v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   archive: '<svg viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M3.2 6v6a1.2 1.2 0 0 0 1.2 1.2h7.2a1.2 1.2 0 0 0 1.2-1.2V6" stroke="currentColor" stroke-width="1.4"/><path d="M6.6 9h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="15.4" r="1.3" fill="currentColor"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="none"><path d="M9.5 14.5a3.6 3.6 0 0 0 5.1 0l3.1-3.1a3.6 3.6 0 0 0-5.1-5.1l-1.1 1.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M14.5 9.5a3.6 3.6 0 0 0-5.1 0l-3.1 3.1a3.6 3.6 0 0 0 5.1 5.1l1.1-1.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
 };
 
 /* ──────────────────────────── Formatting ───────────────────────────── */
@@ -177,10 +178,44 @@ function detect(input) {
 
 /* ───────────────────────────── Networking ──────────────────────────── */
 
+/* ─────────────────────────── Engine address ────────────────────────── */
+
+/**
+ * Where the download engine lives.
+ *
+ * Same origin when you run Stash yourself. When the page is hosted separately
+ * — a static build on Vercel, for instance — the engine runs elsewhere and its
+ * address is stored here. Baked-in defaults come from `window.STASH_ENGINE`,
+ * which the deploy writes into the page.
+ */
+const ENGINE_KEY = 'stash:engine';
+
+function engineBase() {
+  const stored = localStorage.getItem(ENGINE_KEY);
+  if (stored) return stored.replace(/\/$/, '');
+  const baked = typeof window !== 'undefined' ? window.STASH_ENGINE : null;
+  if (baked && baked !== '__STASH_ENGINE__') return String(baked).replace(/\/$/, '');
+  return '';
+}
+
+function setEngineBase(url) {
+  const clean = String(url || '').trim().replace(/\/$/, '');
+  if (clean) localStorage.setItem(ENGINE_KEY, clean);
+  else localStorage.removeItem(ENGINE_KEY);
+}
+
+/** True when the engine is somewhere other than the page's own origin. */
+const isRemoteEngine = () => Boolean(engineBase());
+
+function apiUrl(path) {
+  const base = engineBase();
+  return base ? base + path : path;
+}
+
 async function api(path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: options.body ? { 'content-type': 'application/json' } : {},
-    credentials: 'same-origin',
+    credentials: isRemoteEngine() ? 'omit' : 'same-origin',
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -1044,6 +1079,74 @@ async function startDownload(result) {
   }
 }
 
+/* ────────────────────────── Engine setup screen ────────────────────── */
+
+/**
+ * Shown when the page cannot reach a download engine — which is the normal
+ * first-run state for a statically hosted front end, since the engine lives
+ * somewhere else and the page has no way to guess where.
+ */
+function showEngineSetup(message = null) {
+  if (document.querySelector('#engineSetup')) return;
+
+  const input = el('input', {
+    type: 'url',
+    id: 'engineInput',
+    class: 'capture-input',
+    placeholder: 'https://your-tunnel.trycloudflare.com',
+    spellcheck: 'false',
+    value: engineBase(),
+    'aria-label': 'Engine address',
+  });
+
+  const note = el('p', { class: 'capture-hint', id: 'engineMsg', text: message ?? '' });
+  if (message) note.dataset.tone = 'error';
+
+  const connect = async (event) => {
+    event.preventDefault();
+    const value = input.value.trim();
+    if (!value) { input.focus(); return; }
+
+    note.textContent = 'Connecting…';
+    note.removeAttribute('data-tone');
+    const previous = engineBase();
+    setEngineBase(value);
+
+    try {
+      const health = await api('/api/health');
+      if (!health?.ok) throw new Error('That address answered, but not like a Stash engine.');
+      overlay.remove();
+      boot();
+    } catch (err) {
+      setEngineBase(previous);
+      note.textContent = /failed|fetch/i.test(err.message)
+        ? 'Could not reach that address. Check the engine is running and the URL is exact.'
+        : err.message;
+      note.dataset.tone = 'error';
+    }
+  };
+
+  const overlay = el('div', { class: 'lock-overlay', id: 'engineSetup' },
+    el('form', { class: 'lock-card', onsubmit: connect },
+      el('div', { class: 'lock-mark', svg: ICON.link }),
+      el('h2', { class: 'lock-title', text: 'Connect to your downloader' }),
+      el('p', { class: 'lock-sub', text: 'This page is the interface. Point it at the engine that does the downloading.' }),
+      el('div', { class: 'capture-shell' },
+        input,
+        el('button', { class: 'go-button', type: 'submit' }, el('span', { class: 'go-label', text: 'Connect' })),
+      ),
+      note,
+      el('p', {
+        class: 'cookie-warn',
+        text: 'Run "npm start" then "npm run tunnel" on the machine that holds your files, and paste the https:// address it prints. It is remembered in this browser.',
+      }),
+    ),
+  );
+
+  document.body.append(overlay);
+  requestAnimationFrame(() => input.focus());
+}
+
 /* ─────────────────────────── Site sign-in ──────────────────────────── */
 
 const STEPS = [
@@ -1243,7 +1346,8 @@ function upsertJob(job) {
 }
 
 function saveToDisk(url, filename) {
-  const anchor = el('a', { href: url, download: filename ?? '', rel: 'noopener' });
+  // File paths come back relative to the engine, which may not be this origin.
+  const anchor = el('a', { href: apiUrl(url), download: filename ?? '', rel: 'noopener' });
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
@@ -1418,7 +1522,7 @@ function connectEvents() {
   let retry = 1000;
 
   const open = () => {
-    source = new EventSource('/api/events');
+    source = new EventSource(apiUrl('/api/events'));
 
     source.onopen = () => { retry = 1000; };
 
@@ -1487,6 +1591,7 @@ async function boot() {
       return;
     }
     state.ffmpeg = health.binaries.ffmpeg.ok;
+    showEngineBadge();
 
     if (!health.binaries.ytdlp.ok) {
       showStatus('yt-dlp missing', 'bad');
@@ -1494,7 +1599,12 @@ async function boot() {
     } else if (!health.binaries.ffmpeg.ok) {
       showStatus('no ffmpeg', 'warn');
     }
-  } catch { /* server info is optional */ }
+  } catch (err) {
+    // No engine reachable. On a hosted page that is the expected first run,
+    // so ask for the address rather than showing a dead interface.
+    showEngineSetup(engineBase() ? 'That engine stopped responding.' : null);
+    return;
+  }
 
   try {
     refreshCookieDot(await api('/api/cookies'));
@@ -1509,6 +1619,21 @@ async function boot() {
   connectEvents();
   refreshBadge();
   urlInput.focus();
+}
+
+/** Shows which engine a hosted page is talking to, and lets you change it. */
+function showEngineBadge() {
+  if (!isRemoteEngine()) return;
+  const pill = $('statusPill');
+  pill.hidden = false;
+  pill.dataset.tone = 'ok';
+  pill.style.cursor = 'pointer';
+  pill.title = `Engine: ${engineBase()} — click to change`;
+  pill.querySelector('.status-text').textContent = 'connected';
+  pill.onclick = () => {
+    setEngineBase('');
+    location.reload();
+  };
 }
 
 function showStatus(text, tone) {

@@ -108,6 +108,19 @@ export const config = {
    */
   fallbackResolvers: str('FALLBACK_RESOLVERS', 'true') !== 'false',
 
+  /**
+   * Origins allowed to call this engine from a browser.
+   *
+   * Needed when the page is served from somewhere other than the engine —
+   * a static front end on Vercel talking to a tunnel, for example. Comma
+   * separated; `*` allows any origin, which is only sensible when the engine
+   * itself is password protected.
+   */
+  corsOrigins: str('CORS_ORIGINS')
+    .split(',')
+    .map((s) => s.trim().replace(/\/$/, ''))
+    .filter(Boolean),
+
   maxConcurrentJobs: Math.max(1, num('MAX_CONCURRENT_JOBS', 3)),
   maxPlaylistItems: Math.max(1, num('MAX_PLAYLIST_ITEMS', 200)),
   fileTtlMinutes: num('FILE_TTL_MINUTES', 180),

@@ -9,3 +9,6 @@ cookies.txt
 
 # runtime-generated cookie file
 .cookies.runtime.txt
+
+.vercel-static/
+.vercel/

@@ -17,6 +17,41 @@ app.set('etag', false);
 app.use(express.json({ limit: '128kb' }));
 
 /**
+ * Cross-origin access for split deployments.
+ *
+ * When the front end is hosted separately (a static build on Vercel, say) the
+ * browser will not call this engine without these headers. Origins must be
+ * listed explicitly in CORS_ORIGINS — a downloader that answers to any website
+ * is one someone else can drive from their own page.
+ */
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+  if (!origin) {
+    next();
+    return;
+  }
+
+  const allowed = config.corsOrigins;
+  const permitted = allowed.includes('*') || allowed.includes(origin.replace(/\/$/, ''));
+
+  if (permitted) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type, x-stash-key');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.setHeader('Access-Control-Expose-Headers', 'content-disposition');
+  }
+
+  if (req.method === 'OPTIONS') {
+    res.status(permitted ? 204 : 403).end();
+    return;
+  }
+  next();
+});
+
+/**
  * Security headers. The CSP is deliberately tight: the page ships no external
  * scripts or styles, so everything but `self` can be denied. Remote thumbnails
  * are the one exception — they come from the source platform's CDN.
