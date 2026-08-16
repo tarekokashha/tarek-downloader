@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark light" />
+<title>Stash — paste a link, keep the file</title>
+<meta name="description" content="Download video, audio and artwork from YouTube, TikTok, Instagram, Spotify and about 1800 other sites. Full quality, no watermarks." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B0B0C'/%3E%3Cpath d='M16 7v11m0 0 4.5-4.5M16 18l-4.5-4.5' stroke='%23D9F24B' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M8 21v2.5A1.5 1.5 0 0 0 9.5 25h13a1.5 1.5 0 0 0 1.5-1.5V21' stroke='%23D9F24B' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<div class="noise" aria-hidden="true"></div>
+<div class="glow" id="glow" aria-hidden="true"></div>
+
+<header class="topbar">
+  <a class="wordmark" href="/" aria-label="Stash home">
+    <svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 6v12m0 0 5-5M16 18l-5-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M7 21v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>
+    <span class="wordmark-text">stash</span>
+  </a>
+
+  <div class="topbar-actions">
+    <span class="status-pill" id="statusPill" hidden>
+      <span class="status-dot"></span>
+      <span class="status-text"></span>
+    </span>
+
+    <button class="icon-button" id="activityToggle" type="button" aria-label="Show activity" title="Activity">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h3l2-5 4 10 2-5h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="icon-badge" id="activityCount" hidden>0</span>
+    </button>
+
+    <button class="icon-button" id="themeToggle" type="button" aria-label="Switch colour theme" title="Theme">
+      <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 12.3A6.8 6.8 0 0 1 7.7 4a6.8 6.8 0 1 0 8.3 8.3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="shell">
+
+  <section class="hero" id="hero">
+    <h1 class="hero-title">
+      Paste a link.
+      <span class="hero-accent">Keep the file.</span>
+    </h1>
+    <p class="hero-sub">
+      Video, audio and artwork from YouTube, TikTok, Instagram, Spotify and about 1800 other
+      sites — full quality, watermark-free, tagged and ready.
+    </p>
+
+    <form class="capture" id="captureForm" autocomplete="off">
+      <div class="capture-shell" id="captureShell">
+        <span class="capture-badge" id="platformBadge" data-state="empty">
+          <span class="badge-dot" aria-hidden="true"></span>
+          <span class="badge-label">Link</span>
+        </span>
+
+        <input
+          class="capture-input"
+          id="urlInput"
+          type="text"
+          inputmode="url"
+          spellcheck="false"
+          autocapitalize="off"
+          autocorrect="off"
+          enterkeyhint="go"
+          placeholder="Paste any video, song or playlist link"
+          aria-label="Media link"
+        />
+
+        <button class="clear-button" id="clearInput" type="button" aria-label="Clear" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+
+        <button class="ghost-button" id="pasteButton" type="button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="2.5" width="9" height="11" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M11 2.5V2a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 5H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span>Paste</span>
+        </button>
+
+        <button class="go-button" id="goButton" type="submit">
+          <span class="go-label">Fetch</span>
+          <span class="go-spinner" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <p class="capture-hint" id="captureHint">
+        <span class="hint-default">Press <kbd id="pasteKey">Ctrl</kbd><kbd>V</kbd> anywhere to paste and go.</span>
+      </p>
+    </form>
+
+    <ul class="platform-strip" id="platformStrip" aria-label="Supported platforms"></ul>
+  </section>
+
+  <section class="stage" id="stage" aria-live="polite" aria-busy="false"></section>
+
+  <section class="activity" id="activity" hidden>
+    <div class="section-head">
+      <h2 class="section-title">Activity</h2>
+      <div class="section-tools">
+        <span class="queue-note" id="queueNote"></span>
+        <button class="link-button" id="clearFinished" type="button">Clear finished</button>
+      </div>
+    </div>
+    <ul class="activity-list" id="activityList"></ul>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <p class="footer-note">
+      Runs entirely on your machine. Files are written to your own disk and removed automatically
+      after a few hours.
+    </p>
+    <p class="footer-legal">
+      Download only what you have the right to — your own uploads, public-domain or
+      openly-licensed works, or material the rights holder permits you to keep.
+      Respect each service's terms and your local copyright law.
+    </p>
+  </div>
+</footer>
+
+<div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

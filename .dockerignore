@@ -1,0 +1,16 @@
+node_modules/
+downloads/
+bin/
+tests/
+.git/
+.github/
+.claude/
+.env
+*.log
+*.md
+!README.md
+Dockerfile
+.dockerignore
+cookies.txt
+.DS_Store
+Thumbs.db

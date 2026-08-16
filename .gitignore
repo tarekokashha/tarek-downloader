@@ -1,0 +1,11 @@
+node_modules/
+downloads/
+bin/
+.env
+*.log
+.DS_Store
+Thumbs.db
+cookies.txt
+
+# runtime-generated cookie file
+.cookies.runtime.txt

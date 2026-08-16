@@ -1,0 +1,21 @@
+{
+  "name": "stash",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Paste a link. Keep the file. A universal media downloader for YouTube, TikTok, Instagram, Spotify and ~1800 other sites.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "doctor": "node scripts/setup.js --check",
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "express": "^4.21.2"
+  }
+}

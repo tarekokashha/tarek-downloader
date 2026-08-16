@@ -1,0 +1,38 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploy: push this repo to GitHub, then in Render choose
+# "New +" → "Blueprint" and point it at the repository.
+services:
+  - type: web
+    name: tarek-downloader
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # "free" also works; it sleeps when idle
+    region: frankfurt      # oregon | frankfurt | singapore | ohio | virginia
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: MAX_CONCURRENT_JOBS
+        value: "2"
+      - key: FILE_TTL_MINUTES
+        value: "45"
+      - key: MAX_FILESIZE_MB
+        value: "2048"
+      - key: MAX_DISK_USAGE_MB
+        value: "4096"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "30"
+      # Set this in the Render dashboard, not here — it is a secret.
+      - key: ACCESS_PASSWORD
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      # Netscape cookies.txt contents, if you need Instagram or TikTok.
+      - key: COOKIES_FILE
+        sync: false
