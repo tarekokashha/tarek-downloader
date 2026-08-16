@@ -1,6 +1,27 @@
 # Deploying Stash
 
-Two routes. **Cloudflare Tunnel is the better one for a downloader** — it runs
+## How the pieces fit
+
+Stash is two things that can live apart:
+
+- **the interface** — plain HTML, CSS and JS, hostable anywhere, including Vercel
+- **the engine** — yt-dlp and ffmpeg, needing a process that outlives a request
+  and a real disk, which rules out every serverless host
+
+Run both together (`npm start`) and the interface talks to the engine on the
+same origin. Host them apart and the interface needs to be told where its engine
+is, via `STASH_ENGINE` at build time or the connect screen on first load.
+
+`vercel.json` builds the interface only. The engine must run somewhere else —
+your own machine behind a tunnel is both the cheapest and the most reliable,
+because these sites bot-check datacentre addresses and not residential ones.
+
+Whichever host serves the interface must be listed in the engine's
+`CORS_ORIGINS`, or the browser will refuse the calls.
+
+---
+
+Two routes for the engine. **Cloudflare Tunnel is the better one for a downloader** — it runs
 on your own connection, so sites see a residential IP instead of a cloud range
 and stop bot-checking you. Northflank is the answer if you need it up when your
 machine is off.
