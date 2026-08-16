@@ -4,30 +4,21 @@ import { resolveCatalog } from './catalog.js';
 import { resolveTikTok, toInfoShape, FALLBACK_NOTICE } from './fallback.js';
 import config from '../config.js';
 
-/** True when the server has any cookie source configured. */
-const hasCookies = () => Boolean(config.cookiesFile || config.cookiesFromBrowser);
-
 /**
- * Warns before the download rather than after it fails. Instagram and TikTok
- * both hand logged-out clients an error page, and the raw extractor message
- * ("Unexpected response from webpage request") explains nothing.
+ * No pre-emptive warnings any more.
+ *
+ * Instagram and TikTok both *do* serve plenty of public content anonymously —
+ * public posts, reels and carousels resolve fine without a session, and TikTok
+ * falls through to the public resolver when yt-dlp is blocked. Warning up front
+ * told people something was broken before anything had actually failed, which
+ * is worse than saying nothing: it pushes them into a login step they usually
+ * do not need.
+ *
+ * When a request genuinely hits a login wall, the error path says so and offers
+ * the importer. That is the right moment to mention it.
  */
-function authNotice(analysis) {
-  if (!analysis.prefersCookies || hasCookies()) return null;
-
-  // TikTok no longer warrants a warning: when yt-dlp is blocked, the public
-  // resolver picks it up automatically and the download just works.
-  if (analysis.platform !== 'instagram') return null;
-
-  return {
-    tone: 'warn',
-    title: 'Instagram needs a signed-in session',
-    action: 'cookies',
-    body:
-      'Instagram is the one site that serves nothing at all to logged-out clients — there is '
-      + 'no way around it. Paste a cookies.txt once under “Sign in to sites” and it works for '
-      + 'everyone using this app from then on. Nobody else has to sign in.',
-  };
+function authNotice() {
+  return null;
 }
 
 /** `20240517` -> `17 May 2024` */
