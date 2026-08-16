@@ -15,6 +15,10 @@ import {
   isProtected, hasValidSession, verifyPassword,
   setSessionCookie, clearSessionCookie, destroySession,
 } from '../lib/auth.js';
+import {
+  status as cookieStatus, install as installCookies,
+  remove as removeCookies, browserExtractionViable,
+} from '../lib/cookies.js';
 
 export const router = express.Router();
 
@@ -215,6 +219,34 @@ router.get('/health', (req, res) => {
       maxFilesizeMb: config.maxFilesizeMb,
     },
   });
+});
+
+/* ─────────────────────────────── Cookies ───────────────────────────── */
+
+router.get('/cookies', (req, res) => {
+  res.json({ ...cookieStatus(), extraction: browserExtractionViable() });
+});
+
+router.post('/cookies', express.text({ type: '*/*', limit: '4mb' }), async (req, res, next) => {
+  try {
+    // Accept a raw paste, an uploaded file body, or {content: "..."} JSON.
+    let body = typeof req.body === 'string' ? req.body : '';
+    if (!body && req.body && typeof req.body === 'object') body = String(req.body.content ?? '');
+    if (body.trim().startsWith('{')) {
+      try { body = String(JSON.parse(body).content ?? body); } catch { /* keep raw */ }
+    }
+
+    const summary = await installCookies(body);
+    // Deliberately does not echo the cookies back.
+    res.json({ ok: true, ...cookieStatus(), installedCount: summary.total });
+  } catch (err) {
+    next(Object.assign(err, { status: 400 }));
+  }
+});
+
+router.delete('/cookies', async (req, res) => {
+  await removeCookies();
+  res.json({ ok: true, ...cookieStatus() });
 });
 
 router.get('/platforms', (req, res) => {

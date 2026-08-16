@@ -18,17 +18,19 @@ function authNotice(analysis) {
     ? {
         tone: 'warn',
         title: 'Instagram needs you signed in',
+        action: 'cookies',
         body:
-          'Instagram serves almost nothing to logged-out clients, so this will probably fail. '
-          + 'Add COOKIES_FROM_BROWSER=chrome to your .env (close Chrome first), or export a '
-          + 'cookies.txt and set COOKIES_FILE, then restart the server.',
+          'Instagram serves almost nothing to logged-out clients, so this will fail. '
+          + 'Use “Sign in to sites” to paste a cookies.txt export — it takes about a minute '
+          + 'and works immediately, no restart.',
       }
     : {
         tone: 'warn',
-        title: 'TikTok may bot-check this request',
+        title: 'TikTok may bot-check this',
+        action: 'cookies',
         body:
-          'TikTok blocks anonymous requests intermittently. If it fails, add '
-          + 'COOKIES_FROM_BROWSER=chrome to your .env (close Chrome first) and restart.',
+          'TikTok blocks anonymous requests intermittently. Use “Sign in to sites” to paste '
+          + 'a cookies.txt export and it becomes reliable.',
       };
 }
 

@@ -362,7 +362,7 @@ test('TikTok bot-check becomes an actionable message', () => {
   const specific = friendlyError(raw, 1, 'tiktok');
 
   assert.match(specific, /bot check/i);
-  assert.match(specific, /COOKIES_FROM_BROWSER/);
+  assert.match(specific, /cookies\.txt|Sign in to sites/i);
   assert.notEqual(specific, generic, 'platform context must change the advice');
 });
 
@@ -370,7 +370,27 @@ test('Instagram extraction failure explains the sign-in requirement', () => {
   const raw = 'ERROR: [instagram:user] nasa: Unable to extract data; please report this issue';
   const message = friendlyError(raw, 1, 'instagram');
   assert.match(message, /logged-out|signed in/i);
-  assert.match(message, /cookies\.txt|COOKIES_FROM_BROWSER/);
+  assert.match(message, /cookies\.txt|Sign in to sites/i);
+});
+
+test('never advises reading Chrome cookies — Chrome 127+ makes that impossible', () => {
+  // App-Bound Encryption ties the key to the Chrome process. Telling someone
+  // to "close Chrome and use COOKIES_FROM_BROWSER" sends them in circles,
+  // which is exactly what happened before this was fixed.
+  const cases = [
+    ['ERROR: [TikTok] 1: Unexpected response from webpage request', 'tiktok'],
+    ['ERROR: [instagram] x: Unable to extract data', 'instagram'],
+    ['ERROR: Could not copy Chrome cookie database', null],
+    ['WARNING: failed to decrypt with DPAPI', null],
+  ];
+  for (const [raw, platform] of cases) {
+    const message = friendlyError(raw, 1, platform);
+    assert.doesNotMatch(
+      message, /COOKIES_FROM_BROWSER/,
+      `must not suggest browser extraction for: ${raw}`,
+    );
+    assert.match(message, /cookies\.txt|Sign in to sites/i, `must offer the working route for: ${raw}`);
+  }
 });
 
 test('unrelated platforms keep the generic mapping', () => {

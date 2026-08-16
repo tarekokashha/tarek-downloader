@@ -553,6 +553,16 @@ function renderResult(result) {
         el('div', {},
           el('h4', { text: notice.title }),
           el('p', { text: notice.body }),
+          // A warning you can act on beats one that tells you to edit a file.
+          notice.action === 'cookies'
+            ? el('button', {
+                class: 'link-button',
+                type: 'button',
+                text: 'Sign in to sites →',
+                style: 'margin-top:6px',
+                onclick: () => openCookiePanel(),
+              })
+            : null,
         ),
       ),
     );
@@ -1034,6 +1044,170 @@ async function startDownload(result) {
   }
 }
 
+/* ─────────────────────────── Site sign-in ──────────────────────────── */
+
+const STEPS = [
+  ['Install the extension', 'In Chrome, add “Get cookies.txt LOCALLY” from the Chrome Web Store. It is open source and exports on your machine only.'],
+  ['Open the site, signed in', 'Go to instagram.com (or tiktok.com) in a tab where you are already logged in.'],
+  ['Export', 'Click the extension icon → Export. Pick Netscape format if it asks. A cookies.txt downloads.'],
+  ['Paste it below', 'Open the file in Notepad, select all, and paste here. Or drag the file straight onto this panel.'],
+];
+
+function renderCookieStatus(host, data) {
+  clear(host);
+  const sites = (data.sites ?? []).filter((s) => ['instagram', 'tiktok', 'youtube'].includes(s.id) || s.present);
+
+  host.append(
+    el('div', { class: 'cookie-sites' },
+      ...sites.map((site) => {
+        const state = site.signedIn ? 'in' : site.present ? 'partial' : 'out';
+        return el('span', { class: 'cookie-site', dataset: { state } },
+          el('i'),
+          site.label,
+          site.signedIn ? el('em', { text: 'signed in' })
+            : site.present ? el('em', { text: 'cookies only' })
+              : el('em', { text: '—' }),
+        );
+      }),
+    ),
+  );
+
+  if (data.installed) {
+    const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString() : null;
+    host.append(el('p', { class: 'cookie-meta' },
+      `${data.total} cookies across ${data.domains} domains`,
+      when ? ` · added ${when}` : '',
+    ));
+  }
+}
+
+async function openCookiePanel() {
+  if (document.querySelector('#cookiePanel')) return;
+
+  let data;
+  try {
+    data = await api('/api/cookies');
+  } catch {
+    toast('Could not read cookie status.', 'error');
+    return;
+  }
+
+  const statusHost = el('div');
+  const message = el('p', { class: 'capture-hint', id: 'cookieMsg' });
+
+  const textarea = el('textarea', {
+    class: 'cookie-input',
+    id: 'cookieInput',
+    placeholder: '# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t1800000000\tsessionid\t…',
+    spellcheck: 'false',
+    'aria-label': 'Paste cookies.txt contents',
+  });
+
+  const save = async () => {
+    const body = textarea.value.trim();
+    if (!body) { textarea.focus(); return; }
+    message.textContent = 'Saving…';
+    message.removeAttribute('data-tone');
+    try {
+      const result = await api('/api/cookies', { method: 'POST', body: { content: body } });
+      renderCookieStatus(statusHost, result);
+      textarea.value = '';
+      message.textContent = `Saved ${result.installedCount} cookies. Active immediately — no restart.`;
+      message.dataset.tone = 'good';
+      refreshCookieDot(result);
+      toast('Signed in. Try that link again.', 'good', 5000);
+    } catch (err) {
+      message.textContent = err.message;
+      message.dataset.tone = 'error';
+    }
+  };
+
+  const clearAll = async () => {
+    try {
+      const result = await api('/api/cookies', { method: 'DELETE' });
+      renderCookieStatus(statusHost, result);
+      message.textContent = 'Cookies removed.';
+      message.removeAttribute('data-tone');
+      refreshCookieDot(result);
+    } catch (err) {
+      message.textContent = err.message;
+      message.dataset.tone = 'error';
+    }
+  };
+
+  const close = () => overlay.remove();
+
+  const overlay = el('div', {
+    class: 'sheet-overlay',
+    id: 'cookiePanel',
+    onclick: (event) => { if (event.target === overlay) close(); },
+  },
+    el('div', { class: 'sheet' },
+      el('div', { class: 'sheet-head' },
+        el('div', {},
+          el('h2', { class: 'sheet-title', text: 'Sign in to sites' }),
+          el('p', { class: 'sheet-sub', text: 'Instagram and TikTok only serve logged-in clients. This gives Stash your session.' }),
+        ),
+        el('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close', onclick: close },
+          el('span', { svg: '<svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>' })),
+      ),
+
+      statusHost,
+
+      el('div', { class: 'notice', dataset: { tone: 'warn' } },
+        el('span', { class: 'notice-mark' }),
+        el('div', {},
+          el('h4', { text: 'Chrome cannot be read automatically' }),
+          el('p', { text: 'Since Chrome 127 the cookie store is encrypted with a key bound to the Chrome process, so no other program can read it — closing Chrome does not help. Exporting the file is the way around it.' }),
+        ),
+      ),
+
+      el('ol', { class: 'cookie-steps' },
+        ...STEPS.map(([title, detail]) => el('li', {},
+          el('strong', { text: title }),
+          el('span', { text: detail }),
+        )),
+      ),
+
+      textarea,
+      message,
+
+      el('div', { class: 'action-row' },
+        el('button', { class: 'download-button', type: 'button', onclick: save },
+          el('span', { svg: ICON.check }), 'Save cookies'),
+        el('button', { class: 'secondary-button', type: 'button', text: 'Remove', onclick: clearAll }),
+      ),
+
+      el('p', { class: 'cookie-warn', text: 'This file is your live session — treat it like a password. It is stored only on this machine, never uploaded, never committed to git, and never shown back to you.' }),
+    ),
+  );
+
+  // Drag a cookies.txt straight onto the panel.
+  overlay.addEventListener('dragover', (event) => { event.preventDefault(); overlay.dataset.drop = 'true'; });
+  overlay.addEventListener('dragleave', () => overlay.removeAttribute('data-drop'));
+  overlay.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    overlay.removeAttribute('data-drop');
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    textarea.value = await file.text();
+    save();
+  });
+
+  document.body.append(overlay);
+  renderCookieStatus(statusHost, data);
+  requestAnimationFrame(() => textarea.focus());
+}
+
+function refreshCookieDot(data) {
+  const dot = $('cookieDot');
+  if (!dot) return;
+  const signedIn = (data?.sites ?? []).some((s) => s.signedIn);
+  dot.hidden = !signedIn;
+}
+
+$('cookieToggle').addEventListener('click', () => { openCookiePanel(); });
+
 /* ────────────────────────────── Activity ───────────────────────────── */
 
 const activitySection = $('activity');
@@ -1321,6 +1495,10 @@ async function boot() {
       showStatus('no ffmpeg', 'warn');
     }
   } catch { /* server info is optional */ }
+
+  try {
+    refreshCookieDot(await api('/api/cookies'));
+  } catch { /* optional */ }
 
   try {
     const { jobs } = await api('/api/jobs');

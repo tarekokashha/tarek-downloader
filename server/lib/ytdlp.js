@@ -127,11 +127,18 @@ export function friendlyError(stderr = '', code = 1, platform = null) {
    * yt-dlp wording ("Unexpected response from webpage request") tells a user
    * nothing actionable. Both are almost always fixed by supplying a session.
    */
-  const COOKIE_HINT = 'Set COOKIES_FROM_BROWSER=chrome in .env (close Chrome first), or export a cookies.txt and set COOKIES_FILE.';
+  /*
+   * The hint deliberately does NOT suggest --cookies-from-browser for Chrome.
+   * Chrome 127+ binds the cookie encryption key to the Chrome process, so no
+   * other program can read that store — closing the browser does not help and
+   * neither does running as administrator. Sending people down that path wastes
+   * their time. The in-app importer is the route that works.
+   */
+  const COOKIE_HINT = 'Open “Sign in to sites” in the app and paste a cookies.txt export — it takes about a minute.';
 
   if (platform === 'instagram') {
     if (/Unable to extract|marked as broken|General metadata extraction failed|Unexpected response/i.test(text)) {
-      return `Instagram refused the request. It serves almost nothing to logged-out clients. ${COOKIE_HINT}`;
+      return `Instagram serves nothing to logged-out clients. ${COOKIE_HINT}`;
     }
     if (/login required|requested content is not available|Restricted Video|empty media response/i.test(text)) {
       return `Instagram needs you signed in for this post. ${COOKIE_HINT}`;
@@ -140,11 +147,15 @@ export function friendlyError(stderr = '', code = 1, platform = null) {
 
   if (platform === 'tiktok') {
     if (/Unexpected response from webpage request|Video not available, status code 0/i.test(text)) {
-      return `TikTok blocked the request with a bot check. ${COOKIE_HINT}`;
+      return `TikTok blocked this with a bot check. ${COOKIE_HINT}`;
     }
     if (/status code 102\d\d|author_settings|region/i.test(text)) {
       return 'TikTok says this post is private, region-locked or deleted.';
     }
+  }
+
+  if (/could not copy.*cookie database|failed to decrypt with DPAPI|Permission denied.*[Cc]ookies/i.test(text)) {
+    return `Your browser's cookie store cannot be read (Chrome encrypts it against exactly this). ${COOKIE_HINT}`;
   }
 
   const rules = [
