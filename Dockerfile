@@ -41,16 +41,25 @@ COPY scripts ./scripts
 # Downloads live on the container's own disk and are swept by TTL.
 RUN mkdir -p /app/downloads && chown -R node:node /app
 
+# Defaults tuned for a small always-on container (Northflank's free tier and
+# similar). ffmpeg needs headroom while merging, so Node is capped well below
+# the container limit and only one download runs at a time. Raise these if you
+# give the service more memory.
 ENV NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=192 \
     HOST=0.0.0.0 \
     PORT=8080 \
     DOWNLOAD_DIR=/app/downloads \
     YTDLP_PATH=/usr/local/bin/yt-dlp \
     FFMPEG_PATH=/usr/bin/ffmpeg \
     TRUST_PROXY=1 \
-    MAX_CONCURRENT_JOBS=2 \
-    FILE_TTL_MINUTES=45 \
-    MAX_FILESIZE_MB=2048
+    MAX_CONCURRENT_JOBS=1 \
+    CONCURRENT_FRAGMENTS=2 \
+    FILE_TTL_MINUTES=30 \
+    MAX_FILESIZE_MB=1024 \
+    MAX_DISK_USAGE_MB=2048 \
+    MAX_PLAYLIST_ITEMS=50 \
+    RATE_LIMIT_PER_MINUTE=20
 
 USER node
 EXPOSE 8080

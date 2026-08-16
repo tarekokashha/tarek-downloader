@@ -94,6 +94,13 @@ export const config = {
   /** Refuse new jobs once the download directory exceeds this. 0 = no cap. */
   maxDiskUsageMb: num('MAX_DISK_USAGE_MB', 8192),
 
+  /**
+   * Parallel fragment downloads. Faster, but each fragment is buffered in
+   * memory — drop this to 1 or 2 on a small container or ffmpeg will be
+   * competing for RAM it does not have.
+   */
+  concurrentFragments: Math.min(16, Math.max(1, num('CONCURRENT_FRAGMENTS', 4))),
+
   maxConcurrentJobs: Math.max(1, num('MAX_CONCURRENT_JOBS', 3)),
   maxPlaylistItems: Math.max(1, num('MAX_PLAYLIST_ITEMS', 200)),
   fileTtlMinutes: num('FILE_TTL_MINUTES', 180),

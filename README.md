@@ -118,20 +118,20 @@ Stash needs a **long-lived container with a real disk**. It will not run on
 Vercel, Netlify, or any serverless platform — the job queue and live progress
 stream need a process that survives between requests, downloads outlive a
 60-second function limit, and `/tmp` is gone by the time the browser asks for
-the file. The `Dockerfile` here targets Railway, Render, Fly.io or any VPS.
+the file.
 
-### Railway
+**→ Step-by-step instructions: [DEPLOY.md](DEPLOY.md)**
 
-1. Push this repo to GitHub.
-2. [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**.
-3. Railway reads `railway.json` and builds the `Dockerfile` automatically.
-4. Add the variables below, then **Settings → Networking → Generate Domain**.
+### Where it runs, as of August 2026
 
-### Render
-
-1. Push this repo to GitHub.
-2. [render.com](https://render.com) → **New + → Blueprint**, point it at the repo.
-3. Render reads `render.yaml`. Fill in the secrets it prompts for.
+| Platform | Free? | Always on? | Notes |
+| --- | --- | --- | --- |
+| **Northflank** | yes | yes | Best free option. Card verified, not charged. Config: build the `Dockerfile`. |
+| **Render** | yes | no | Sleeps after 15 min idle, 30–60s wake. 100 GB/month. Reads `render.yaml`. |
+| **Oracle Cloud** | yes | yes | A real always-free ARM VM. Most capable, longest setup. |
+| **Railway** | no | yes | Free tier removed; ~$5/month. Reads `railway.json`. |
+| **Fly.io / Koyeb** | no | — | Free tiers closed to new accounts. |
+| **Your own machine** | yes | while on | Fastest and most reliable — see below. |
 
 ### Variables to set
 
@@ -150,8 +150,16 @@ ranges as suspicious, and hosted instances get bot-checked far more often than
 your home connection does. **`COOKIES_CONTENT` is what makes the difference** —
 with a valid session most of it works; without one, Instagram fails outright and
 TikTok and YouTube fail intermittently. Cookies expire, so expect to refresh
-them every few weeks. If a site becomes stubborn, running Stash locally is
-always the more reliable option.
+them every few weeks.
+
+### Or skip the cloud entirely
+
+For a downloader specifically, self-hosting is not a compromise — it is the
+better setup. Your home connection is a residential IP, which is not treated as
+a bot, and there is no bandwidth meter or egress bill. Run `npm start` and put a
+free [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+or [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) in front of it to get
+a public HTTPS URL. The only cost is that it runs while your machine does.
 
 ---
 

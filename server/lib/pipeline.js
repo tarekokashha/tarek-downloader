@@ -66,7 +66,7 @@ function buildDownloadArgs(job, plan) {
   const isPlaylist = plan.playlist;
 
   args.push('--no-mtime', '--no-overwrites', '--no-part');
-  args.push('--concurrent-fragments', '4');
+  args.push('--concurrent-fragments', String(config.concurrentFragments));
 
   args.push('--paths', job.dir);
   args.push(
@@ -353,7 +353,7 @@ async function downloadOneTrack(job, track, { index, total, preset, coverPath, a
   const args = [
     ...baseArgs(),
     '--no-playlist', '--no-mtime', '--no-part', '--no-overwrites',
-    '--concurrent-fragments', '4',
+    '--concurrent-fragments', String(config.concurrentFragments),
     '--paths', job.dir,
     '--output', `${escapeTemplate(baseName)}.%(ext)s`,
     '--format', AUDIO_SOURCE_SELECTOR,

@@ -96,6 +96,20 @@ async function main() {
     log.plain('');
   }
 
+  /*
+   * An unguarded downloader on a public address is an open proxy for other
+   * people's bandwidth. On a metered host that is billed to whoever deployed
+   * it, so say so loudly rather than letting it be discovered on an invoice.
+   */
+  const publiclyBound = config.host === '0.0.0.0' || config.host === '::';
+  if (publiclyBound && !config.accessPassword) {
+    log.plain('');
+    log.warn('\x1b[1mThis instance is reachable from the network with no password.\x1b[0m');
+    log.plain('  Anyone who finds the URL can run downloads on your bandwidth.');
+    log.plain('  Set \x1b[1mACCESS_PASSWORD\x1b[0m in the environment and redeploy.');
+    log.plain('');
+  }
+
   const server = app.listen(config.port, config.host, () => {
     const shown = config.host === '0.0.0.0' ? 'localhost' : config.host;
     log.plain('');
