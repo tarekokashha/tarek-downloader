@@ -363,7 +363,6 @@ async function downloadTikTokFallback(job, plan) {
     progress: { percent: 100, speed: null, eta: null },
   });
 
-  jobs.addWarning(job, 'TikTok blocked the direct request, so this was resolved through a public lookup service.');
   log.ok(`TikTok (fallback) · ${files.length} file(s) · ${post.title}`);
   return true;
 }

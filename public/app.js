@@ -1,7 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Stash — client
-   Everything remote (titles, channel names, filenames) is inserted as text
-   nodes, never as markup. The `el()` helper makes that the default path.
+
+   Paste a link, pick a quality, get the file. One screen, no history, no
+   accounts. Everything remote (titles, channel names, filenames) is inserted
+   as text nodes; the `el()` helper makes that the default path.
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ──────────────────────────── DOM helpers ──────────────────────────── */
@@ -48,11 +50,9 @@ const ICON = {
   alert: '<svg viewBox="0 0 20 20" fill="none"><path d="M10 6v5M10 13.6v.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="10" cy="10" r="7.6" stroke="currentColor" stroke-width="1.6"/></svg>',
   film: '<svg viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M6.6 4.5v11M13.4 4.5v11" stroke="currentColor" stroke-width="1.2"/></svg>',
   stop: '<svg viewBox="0 0 16 16" fill="none"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.4" fill="currentColor"/></svg>',
-  trash: '<svg viewBox="0 0 16 16" fill="none"><path d="M3 4.4h10M6.4 4.4V3.2A1 1 0 0 1 7.4 2.2h1.2a1 1 0 0 1 1 1v1.2M4.4 4.4l.6 8a1.2 1.2 0 0 0 1.2 1.1h3.6a1.2 1.2 0 0 0 1.2-1.1l.6-8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  retry: '<svg viewBox="0 0 16 16" fill="none"><path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13.4 2.2v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  archive: '<svg viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="3" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M3.2 6v6a1.2 1.2 0 0 0 1.2 1.2h7.2a1.2 1.2 0 0 0 1.2-1.2V6" stroke="currentColor" stroke-width="1.4"/><path d="M6.6 9h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
-  lock: '<svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="15.4" r="1.3" fill="currentColor"/></svg>',
+  copy: '<svg viewBox="0 0 16 16" fill="none"><rect x="5.5" y="2.5" width="8" height="10" rx="1.6" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 5H3.6A1.1 1.1 0 0 0 2.5 6.1v7.3A1.1 1.1 0 0 0 3.6 14.5h6.3" stroke="currentColor" stroke-width="1.4"/></svg>',
   link: '<svg viewBox="0 0 24 24" fill="none"><path d="M9.5 14.5a3.6 3.6 0 0 0 5.1 0l3.1-3.1a3.6 3.6 0 0 0-5.1-5.1l-1.1 1.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M14.5 9.5a3.6 3.6 0 0 0-5.1 0l-3.1 3.1a3.6 3.6 0 0 0 5.1 5.1l1.1-1.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="15.4" r="1.3" fill="currentColor"/></svg>',
 };
 
 /* ──────────────────────────── Formatting ───────────────────────────── */
@@ -80,8 +80,7 @@ function longDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
-  if (h > 0) return `${h} hr ${m} min`;
-  return `${Math.max(1, m)} min`;
+  return h > 0 ? `${h} hr ${m} min` : `${Math.max(1, m)} min`;
 }
 
 function compactCount(value) {
@@ -139,19 +138,16 @@ function setAccent(hex) {
   root.setProperty('--accent-glow', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.22)`);
 }
 
-/* ──────────────────────── Platform detection ───────────────────────── */
+/* ─────────────────────────────── State ─────────────────────────────── */
 
 const state = {
   platforms: [],
-  accents: {},
   containers: [],
   ffmpeg: true,
   result: null,
   choice: null,
-  jobs: new Map(),
-  autoSaved: new Set(),
-  ownJobs: new Set(),
   resolveToken: 0,
+  activeJob: null,
 };
 
 function detect(input) {
@@ -176,17 +172,12 @@ function detect(input) {
   return { id: 'generic', name: host.length > 22 ? 'Link' : host, accent: DEFAULT_ACCENT };
 }
 
-/* ───────────────────────────── Networking ──────────────────────────── */
-
 /* ─────────────────────────── Engine address ────────────────────────── */
 
 /**
- * Where the download engine lives.
- *
- * Same origin when you run Stash yourself. When the page is hosted separately
- * — a static build on Vercel, for instance — the engine runs elsewhere and its
- * address is stored here. Baked-in defaults come from `window.STASH_ENGINE`,
- * which the deploy writes into the page.
+ * Where the download engine lives. Same origin when you run Stash yourself;
+ * elsewhere when the interface is hosted separately, in which case the deploy
+ * writes the address into `window.STASH_ENGINE`.
  */
 const ENGINE_KEY = 'stash:engine';
 
@@ -204,13 +195,10 @@ function setEngineBase(url) {
   else localStorage.removeItem(ENGINE_KEY);
 }
 
-/** True when the engine is somewhere other than the page's own origin. */
 const isRemoteEngine = () => Boolean(engineBase());
+const apiUrl = (path) => engineBase() + path;
 
-function apiUrl(path) {
-  const base = engineBase();
-  return base ? base + path : path;
-}
+/* ───────────────────────────── Networking ──────────────────────────── */
 
 async function api(path, options = {}) {
   const res = await fetch(apiUrl(path), {
@@ -224,7 +212,6 @@ async function api(path, options = {}) {
   try { payload = await res.json(); } catch { /* empty body */ }
 
   if (!res.ok) {
-    // A protected instance signed us out; show the gate instead of an error.
     if (res.status === 401 && payload?.locked) {
       showLockScreen();
       throw new Error('Signed out.');
@@ -234,64 +221,50 @@ async function api(path, options = {}) {
   return payload;
 }
 
-/* ───────────────────────────── Lock screen ─────────────────────────── */
+/* ────────────────────────── Saving to disk ─────────────────────────── */
 
-function showLockScreen(message = null) {
-  if (document.querySelector('#lockScreen')) {
-    if (message) document.querySelector('#lockError').textContent = message;
-    return;
+/**
+ * Pulls the finished file and hands it to the browser.
+ *
+ * The obvious approach — an <a download> pointing at the engine — silently
+ * fails whenever the interface and the engine are on different origins: the
+ * `download` attribute is ignored cross-origin, so it degrades to a navigation,
+ * and browsers block navigations that are not tied to a user gesture. Fetching
+ * the bytes and saving from a blob: URL sidesteps both problems, and gives us
+ * real transfer progress as a bonus.
+ */
+async function saveFile(fileUrl, filename, onProgress) {
+  const res = await fetch(apiUrl(fileUrl), {
+    credentials: isRemoteEngine() ? 'omit' : 'same-origin',
+  });
+  if (!res.ok) throw new Error(`Could not fetch the file (${res.status}).`);
+
+  const total = Number(res.headers.get('content-length')) || 0;
+  let blob;
+
+  if (res.body && typeof res.body.getReader === 'function') {
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      onProgress?.(total ? (received / total) * 100 : null, received, total);
+    }
+    blob = new Blob(chunks);
+  } else {
+    blob = await res.blob();
   }
 
-  const input = el('input', {
-    type: 'password',
-    id: 'lockInput',
-    class: 'capture-input',
-    placeholder: 'Password',
-    autocomplete: 'current-password',
-    'aria-label': 'Access password',
-  });
-
-  const error = el('p', { class: 'capture-hint', id: 'lockError', dataset: { tone: 'error' }, text: message ?? '' });
-
-  const submit = async (event) => {
-    event.preventDefault();
-    const value = input.value.trim();
-    if (!value) { input.focus(); return; }
-    try {
-      const res = await fetch('/api/unlock', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ password: value }),
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) {
-        error.textContent = payload?.error ?? 'Wrong password.';
-        input.select();
-        return;
-      }
-      overlay.remove();
-      boot();
-    } catch {
-      error.textContent = 'Could not reach the server.';
-    }
-  };
-
-  const overlay = el('div', { class: 'lock-overlay', id: 'lockScreen' },
-    el('form', { class: 'lock-card', onsubmit: submit },
-      el('div', { class: 'lock-mark', svg: ICON.lock }),
-      el('h2', { class: 'lock-title', text: 'This Stash is private' }),
-      el('p', { class: 'lock-sub', text: 'Enter the password to continue.' }),
-      el('div', { class: 'capture-shell' },
-        input,
-        el('button', { class: 'go-button', type: 'submit' }, el('span', { class: 'go-label', text: 'Unlock' })),
-      ),
-      error,
-    ),
-  );
-
-  document.body.append(overlay);
-  requestAnimationFrame(() => input.focus());
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = el('a', { href: objectUrl, download: filename || 'download', rel: 'noopener' });
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  // Give the browser time to start writing before the blob is reclaimed.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
 }
 
 /* ────────────────────────────── Toasts ─────────────────────────────── */
@@ -320,6 +293,7 @@ const captureShell = $('captureShell');
 const platformBadge = $('platformBadge');
 const captureHint = $('captureHint');
 const clearInputBtn = $('clearInput');
+const stage = $('stage');
 
 const DEFAULT_HINT = captureHint.innerHTML;
 
@@ -338,7 +312,6 @@ function setHint(message, tone = '') {
 function refreshBadge() {
   const value = urlInput.value.trim();
   clearInputBtn.hidden = value.length === 0;
-
   const label = platformBadge.querySelector('.badge-label');
 
   if (!value) {
@@ -367,7 +340,7 @@ clearInputBtn.addEventListener('click', () => {
   urlInput.value = '';
   refreshBadge();
   setHint(null);
-  clear($('stage'));
+  clear(stage);
   urlInput.focus();
 });
 
@@ -392,7 +365,6 @@ $('captureForm').addEventListener('submit', (event) => {
   submit();
 });
 
-/* Paste anywhere on the page to fetch immediately. */
 document.addEventListener('paste', (event) => {
   const target = event.target;
   if (target instanceof HTMLElement && /input|textarea/i.test(target.tagName) && target !== urlInput) return;
@@ -418,8 +390,6 @@ document.addEventListener('keydown', (event) => {
 });
 
 /* ──────────────────────────── Resolve flow ─────────────────────────── */
-
-const stage = $('stage');
 
 function setBusy(busy) {
   goButton.dataset.loading = busy ? 'true' : 'false';
@@ -474,6 +444,7 @@ async function submit({ forcePlaylist = false } = {}) {
   }
 
   const token = ++state.resolveToken;
+  state.activeJob = null;
   setHint(null);
   setBusy(true);
   renderSkeleton();
@@ -502,7 +473,6 @@ async function submit({ forcePlaylist = false } = {}) {
 function defaultChoice(result) {
   const audioOnly = Boolean(result.audioOnly) || !result.formats.video.length;
   const mode = audioOnly ? 'audio' : 'video';
-
   const list = mode === 'audio' ? result.formats.audio : result.formats.video;
   const preferred = list.find((o) => o.recommended) ?? list[0];
 
@@ -512,7 +482,6 @@ function defaultChoice(result) {
     selector: preferred?.selector ?? null,
     container: 'mp4',
     subtitleLang: '',
-    embedSubtitles: false,
     embedThumbnail: true,
     embedMetadata: true,
     embedChapters: result.chapters > 0,
@@ -526,7 +495,7 @@ function defaultChoice(result) {
 
 function artShape(result) {
   if (result.platform === 'spotify' || result.platform === 'appleMusic') return 'square';
-  if (result.platform === 'tiktok' || result.collectionKind === 'reel') return 'portrait';
+  if (result.platform === 'tiktok') return 'portrait';
   return 'wide';
 }
 
@@ -554,16 +523,13 @@ function renderResult(result) {
 
   art.append(el('span', { class: 'art-platform' }, el('i'), result.platformName));
 
-  const runtime = result.isCollection
-    ? longDuration(result.duration)
-    : duration(result.duration);
+  const runtime = result.isCollection ? longDuration(result.duration) : duration(result.duration);
   if (runtime) art.append(el('span', { class: 'art-duration', text: runtime }));
 
   body.append(art);
 
   /* ── Main column ── */
   const main = el('div', { class: 'result-main' });
-
   main.append(el('h2', { class: 'result-title', text: result.title }));
 
   const meta = el('div', { class: 'result-meta' });
@@ -580,7 +546,7 @@ function renderResult(result) {
   });
   if (metaBits.length) main.append(meta);
 
-  /* ── Notices ── */
+  /* Only notices that tell you something you can act on. */
   for (const notice of [result.notice, ...(result.notices ?? [])].filter(Boolean)) {
     main.append(
       el('div', { class: 'notice', dataset: { tone: notice.tone ?? 'info' } },
@@ -588,28 +554,6 @@ function renderResult(result) {
         el('div', {},
           el('h4', { text: notice.title }),
           el('p', { text: notice.body }),
-          // A warning you can act on beats one that tells you to edit a file.
-          notice.action === 'cookies'
-            ? el('button', {
-                class: 'link-button',
-                type: 'button',
-                text: 'Sign in to sites →',
-                style: 'margin-top:6px',
-                onclick: () => openCookiePanel(),
-              })
-            : null,
-        ),
-      ),
-    );
-  }
-
-  if (result.degraded) {
-    main.append(
-      el('div', { class: 'notice', dataset: { tone: 'warn' } },
-        el('span', { class: 'notice-mark' }),
-        el('div', {},
-          el('h4', { text: 'Limited metadata' }),
-          el('p', { text: 'Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to your .env for full playlists, album names and track numbers.' }),
         ),
       ),
     );
@@ -661,7 +605,6 @@ function renderResult(result) {
   segments.append(...segmentButtons);
   if (modes.length > 1) main.append(segments);
 
-  /* ── Dynamic panels ── */
   const optionsHost = el('div');
   const advancedHost = el('div');
   const actionHost = el('div');
@@ -670,7 +613,6 @@ function renderResult(result) {
   body.append(main);
   panel.append(body);
 
-  /* ── Track list for collections ── */
   let trackListHost = null;
   if (result.entries?.length) {
     trackListHost = el('div', { class: 'tracks' });
@@ -707,6 +649,7 @@ function renderResult(result) {
   function renderOptions() {
     clear(optionsHost);
     const mode = state.choice.mode;
+
     if (mode === 'thumbnail') {
       optionsHost.append(
         el('div', { class: 'field' },
@@ -723,7 +666,6 @@ function renderResult(result) {
     const label = el('div', { class: 'field-label' },
       el('span', { text: mode === 'audio' ? 'Audio quality' : 'Video quality' }),
     );
-
     if (mode === 'video' && result.generic) {
       label.append(el('span', { class: 'field-note', text: 'per-item best match' }));
     }
@@ -750,7 +692,7 @@ function renderResult(result) {
         if (option.note) sub.push(option.note);
       }
 
-      const button = el('button', {
+      options.append(el('button', {
         class: 'option',
         type: 'button',
         'aria-pressed': String(selected),
@@ -767,9 +709,7 @@ function renderResult(result) {
         ),
         sub.length ? el('span', { class: 'option-sub', text: sub.join(' · ') }) : null,
         option.recommended ? el('span', { class: 'option-star' }) : null,
-      );
-
-      options.append(button);
+      ));
     }
 
     optionsHost.append(el('div', { class: 'field' }, label, options));
@@ -802,9 +742,7 @@ function renderResult(result) {
     const toggle = el('button', {
       class: 'advanced-toggle',
       type: 'button',
-      onclick: () => {
-        wrap.dataset.open = wrap.dataset.open === 'true' ? 'false' : 'true';
-      },
+      onclick: () => { wrap.dataset.open = wrap.dataset.open === 'true' ? 'false' : 'true'; },
     }, el('span', { svg: ICON.chevron }), 'More options');
 
     const grid = el('div', { class: 'switch-grid' });
@@ -812,7 +750,6 @@ function renderResult(result) {
     grid.append(switchRow('embedThumbnail', 'Embed cover art',
       isVideo ? 'Adds the thumbnail as the file poster.' : 'Adds the artwork inside the audio file.',
       { disabled: !state.ffmpeg }));
-
     grid.append(switchRow('embedMetadata', 'Write tags',
       'Stores title, artist and source inside the file.'));
 
@@ -820,26 +757,21 @@ function renderResult(result) {
       grid.append(switchRow('embedChapters', 'Keep chapters',
         `${result.chapters} chapter markers stay navigable.`, { disabled: !state.ffmpeg }));
     }
-
     grid.append(switchRow('writeThumbnailFile', 'Save cover separately',
       'Also writes the artwork as its own image file.'));
-
     if (isVideo && result.platform === 'youtube') {
       grid.append(switchRow('sponsorBlock', 'Skip sponsor segments',
         'Cuts sponsorships and intros using SponsorBlock data.', { disabled: !state.ffmpeg }));
     }
 
-    const body_ = el('div', { class: 'advanced-body' }, grid);
-
-    /* Inline selects and clip range */
+    const inner = el('div', { class: 'advanced-body' }, grid);
     const inline = el('div', { class: 'inline-fields' });
 
     if (isVideo && !result.audioOnly) {
       const select = el('select', {
         onchange: (event) => {
           state.choice.container = event.target.value;
-          const list = result.formats.video;
-          const current = list.find((o) => o.id === state.choice.quality);
+          const current = result.formats.video.find((o) => o.id === state.choice.quality);
           state.choice.selector = current?.selector ?? null;
         },
       });
@@ -859,10 +791,7 @@ function renderResult(result) {
       });
       select.append(el('option', { value: '', text: 'None' }));
       for (const sub of result.subtitles.slice(0, 20)) {
-        select.append(el('option', {
-          value: sub.code,
-          text: `${sub.code}${sub.auto ? ' (auto)' : ''}`,
-        }));
+        select.append(el('option', { value: sub.code, text: `${sub.code}${sub.auto ? ' (auto)' : ''}` }));
       }
       inline.append(el('label', { class: 'inline-field' }, el('span', { text: 'Subtitles' }), select));
     }
@@ -886,17 +815,16 @@ function renderResult(result) {
       );
     }
 
-    if (inline.children.length) body_.append(inline);
-
+    if (inline.children.length) inner.append(inline);
     if (!state.ffmpeg) {
-      body_.append(el('p', {
+      inner.append(el('p', {
         class: 'switch-desc',
         style: 'margin-top:12px',
         text: 'ffmpeg was not found, so conversion, clipping and embedding are unavailable.',
       }));
     }
 
-    wrap.append(toggle, body_);
+    wrap.append(toggle, inner);
     advancedHost.append(wrap);
   }
 
@@ -924,7 +852,7 @@ function renderResult(result) {
       class: 'download-button',
       type: 'button',
       disabled: result.isCollection && count === 0,
-      onclick: () => startDownload(result),
+      onclick: () => runDownload(result, actionHost, renderAction),
     },
       el('span', { svg: ICON.download }),
       label,
@@ -943,7 +871,7 @@ function renderResult(result) {
           toast('Could not access the clipboard.', 'error');
         }
       },
-    }, el('span', { svg: ICON.archive }));
+    }, el('span', { svg: ICON.copy }));
 
     actionHost.append(el('div', { class: 'action-row' }, button, copy));
   }
@@ -951,7 +879,6 @@ function renderResult(result) {
   function renderTracks() {
     if (!trackListHost) return;
     clear(trackListHost);
-
     const selected = state.choice.selected;
 
     const head = el('div', { class: 'tracks-head' },
@@ -959,10 +886,7 @@ function renderResult(result) {
       el('div', { class: 'tracks-tools' },
         el('button', {
           class: 'link-button', type: 'button', text: 'All',
-          onclick: () => {
-            result.entries.forEach((e) => selected.add(e.index));
-            renderTracks(); renderAction();
-          },
+          onclick: () => { result.entries.forEach((e) => selected.add(e.index)); renderTracks(); renderAction(); },
         }),
         el('button', {
           class: 'link-button', type: 'button', text: 'None',
@@ -974,12 +898,10 @@ function renderResult(result) {
     const list = el('ul', { class: 'tracks-list' });
 
     for (const entry of result.entries) {
-      const isOn = selected.has(entry.index);
       const row = el('li', { class: 'track' });
-
       const checkbox = el('input', {
         type: 'checkbox',
-        checked: isOn,
+        checked: selected.has(entry.index),
         onchange: (event) => {
           if (event.target.checked) selected.add(entry.index);
           else selected.delete(entry.index);
@@ -1024,9 +946,6 @@ function renderResult(result) {
   renderAction();
   renderTracks();
   requestAnimationFrame(positionPill);
-
-  // One listener for the page, re-pointed at the current card — adding a new
-  // one per render would pile them up for the lifetime of the tab.
   repositionPill = positionPill;
 }
 
@@ -1034,72 +953,282 @@ function renderResult(result) {
 let repositionPill = null;
 window.addEventListener('resize', () => repositionPill?.(), { passive: true });
 
-/* ─────────────────────────── Start a download ──────────────────────── */
+/* ────────────────────────── Download, inline ───────────────────────── */
 
-async function startDownload(result) {
+const ACTIVE_STATES = new Set(['queued', 'preparing', 'downloading', 'processing', 'packaging']);
+
+/**
+ * Runs a download to completion in place of the button, then saves the file.
+ * There is no queue and no history: one link, one result, done.
+ */
+async function runDownload(result, host, restore) {
   const choice = state.choice;
 
   const selectedItems = choice.selected && choice.selected.size < (result.entries?.length ?? 0)
     ? [...choice.selected].sort((a, b) => a - b)
     : null;
 
-  const body = {
-    url: result.url,
-    mode: choice.mode,
-    quality: choice.quality,
-    selector: choice.mode === 'video' ? choice.selector : null,
-    container: choice.container,
-    playlist: result.isCollection,
-    items: selectedItems,
-    subtitleLang: choice.subtitleLang || null,
-    embedSubtitles: Boolean(choice.subtitleLang) && choice.mode === 'video',
-    embedThumbnail: choice.embedThumbnail,
-    embedMetadata: choice.embedMetadata,
-    embedChapters: choice.embedChapters,
-    writeThumbnailFile: choice.writeThumbnailFile,
-    sponsorBlock: choice.sponsorBlock,
-    trim: (choice.trimStart || choice.trimEnd)
-      ? { start: choice.trimStart || null, end: choice.trimEnd || null }
-      : null,
-    title: result.title,
-    subtitle: result.uploader ?? '',
-    thumbnail: result.thumbnail,
-    duration: result.duration,
-    itemCount: selectedItems?.length ?? result.itemCount,
+  clear(host);
+  const bar = el('span');
+  const label = el('span', { class: 'progress-label', text: 'Starting…' });
+  const detail = el('span', { class: 'progress-detail' });
+
+  const cancelButton = el('button', {
+    class: 'secondary-button', type: 'button', title: 'Cancel',
+    svg: ICON.stop,
+  });
+
+  host.append(
+    el('div', { class: 'progress-row' },
+      el('div', { class: 'progress-block' },
+        el('div', { class: 'progress-head' }, label, detail),
+        el('div', { class: 'progress-track' }, bar),
+      ),
+      cancelButton,
+    ),
+  );
+
+  const setProgress = (percent) => {
+    bar.style.width = `${Math.max(0, Math.min(100, percent ?? 0))}%`;
   };
 
+  let job;
   try {
-    const job = await api('/api/jobs', { method: 'POST', body });
-    state.ownJobs.add(job.id);
-    upsertJob(job);
-    openActivity();
-    toast(result.isCollection ? 'Queued — files will appear below.' : 'Started.', 'info', 2600);
+    job = await api('/api/jobs', {
+      method: 'POST',
+      body: {
+        url: result.url,
+        mode: choice.mode,
+        quality: choice.quality,
+        selector: choice.mode === 'video' ? choice.selector : null,
+        container: choice.container,
+        playlist: result.isCollection,
+        items: selectedItems,
+        subtitleLang: choice.subtitleLang || null,
+        embedSubtitles: Boolean(choice.subtitleLang) && choice.mode === 'video',
+        embedThumbnail: choice.embedThumbnail,
+        embedMetadata: choice.embedMetadata,
+        embedChapters: choice.embedChapters,
+        writeThumbnailFile: choice.writeThumbnailFile,
+        sponsorBlock: choice.sponsorBlock,
+        trim: (choice.trimStart || choice.trimEnd)
+          ? { start: choice.trimStart || null, end: choice.trimEnd || null }
+          : null,
+        title: result.title,
+        subtitle: result.uploader ?? '',
+        thumbnail: result.thumbnail,
+        duration: result.duration,
+        itemCount: selectedItems?.length ?? result.itemCount,
+      },
+    });
   } catch (err) {
-    toast(err.message, 'error', 6000);
+    restore();
+    toast(err.message, 'error', 7000);
+    return;
   }
+
+  state.activeJob = job.id;
+  cancelButton.onclick = () => {
+    api(`/api/jobs/${job.id}/cancel`, { method: 'POST' }).catch(() => {});
+    label.textContent = 'Cancelling…';
+  };
+
+  /* Follow the job to completion. */
+  let final;
+  try {
+    final = await followJob(job.id, (state_) => {
+      const p = state_.progress?.percent;
+      setProgress(p);
+      label.textContent = state_.phase || state_.status;
+
+      const bits = [];
+      if (Number.isFinite(p)) bits.push(`${p.toFixed(p < 10 ? 1 : 0)}%`);
+      if (state_.progress?.speed) bits.push(`${bytes(state_.progress.speed)}/s`);
+      if (state_.progress?.eta) bits.push(eta(state_.progress.eta));
+      detail.textContent = bits.join(' · ');
+    });
+  } catch (err) {
+    restore();
+    toast(err.message, 'error', 7000);
+    return;
+  }
+
+  if (final.status === 'canceled') {
+    restore();
+    return;
+  }
+  if (final.status === 'error') {
+    restore();
+    renderErrorNotice(host, final.error ?? 'The download failed.');
+    return;
+  }
+
+  /* Transfer the finished file to the browser. */
+  cancelButton.remove();
+  const target = final.archive ?? final.files[0];
+  if (!target) {
+    restore();
+    toast('The download produced no file.', 'error');
+    return;
+  }
+
+  label.textContent = 'Saving to your device…';
+  detail.textContent = '';
+  setProgress(0);
+
+  try {
+    await saveFile(target.url, target.name, (percent, received, total) => {
+      setProgress(percent);
+      detail.textContent = total
+        ? `${bytes(received)} of ${bytes(total)}`
+        : bytes(received) ?? '';
+    });
+  } catch (err) {
+    restore();
+    toast(err.message, 'error', 7000);
+    return;
+  }
+
+  /* Done. */
+  clear(host);
+  host.append(
+    el('div', { class: 'action-row' },
+      el('div', { class: 'saved-banner' },
+        el('span', { class: 'saved-check', svg: ICON.check }),
+        el('div', {},
+          el('strong', { text: final.files.length > 1 ? `Saved ${final.files.length} files` : 'Saved' }),
+          el('span', { class: 'saved-name', text: target.name }),
+        ),
+      ),
+      el('button', {
+        class: 'secondary-button', type: 'button', text: 'Again',
+        onclick: () => restore(),
+      }),
+    ),
+  );
+  state.activeJob = null;
 }
 
-/* ────────────────────────── Engine setup screen ────────────────────── */
+function renderErrorNotice(host, message) {
+  const existing = host.parentElement?.querySelector('.inline-error');
+  if (existing) existing.remove();
+  const node = el('div', { class: 'notice inline-error', dataset: { tone: 'warn' } },
+    el('span', { class: 'notice-mark' }),
+    el('div', {},
+      el('h4', { text: "That didn't work" }),
+      el('p', { text: message }),
+    ),
+  );
+  host.parentElement?.insertBefore(node, host);
+}
 
 /**
- * Shown when the page cannot reach a download engine — which is the normal
- * first-run state for a statically hosted front end, since the engine lives
- * somewhere else and the page has no way to guess where.
+ * Watches one job until it finishes. Uses the live stream when it is available
+ * and falls back to polling, so a proxy that buffers events cannot leave the
+ * interface stuck on "Starting".
  */
+function followJob(id, onUpdate) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let source = null;
+    let poller = null;
+
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      try { source?.close(); } catch { /* already closed */ }
+      clearInterval(poller);
+      fn(value);
+    };
+
+    const consider = (job) => {
+      if (!job) return;
+      onUpdate(job);
+      if (!ACTIVE_STATES.has(job.status)) finish(resolve, job);
+    };
+
+    try {
+      source = new EventSource(apiUrl(`/api/jobs/${id}/events`));
+      source.onmessage = (event) => {
+        try { consider(JSON.parse(event.data)); } catch { /* ignore frame */ }
+      };
+      source.onerror = () => { try { source.close(); } catch { /* noop */ } };
+    } catch { /* polling still covers it */ }
+
+    // Polling is the safety net, not the primary path.
+    poller = setInterval(async () => {
+      try {
+        consider(await api(`/api/jobs/${id}`));
+      } catch (err) {
+        finish(reject, err);
+      }
+    }, 1200);
+  });
+}
+
+/* ─────────────────────────── Lock screen ───────────────────────────── */
+
+function showLockScreen(message = null) {
+  if (document.querySelector('#lockScreen')) return;
+
+  const input = el('input', {
+    type: 'password', id: 'lockInput', class: 'capture-input',
+    placeholder: 'Password', autocomplete: 'current-password', 'aria-label': 'Access password',
+  });
+  const error = el('p', { class: 'capture-hint', dataset: { tone: 'error' }, text: message ?? '' });
+
+  const submitPassword = async (event) => {
+    event.preventDefault();
+    const value = input.value.trim();
+    if (!value) { input.focus(); return; }
+    try {
+      const res = await fetch(apiUrl('/api/unlock'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: isRemoteEngine() ? 'omit' : 'same-origin',
+        body: JSON.stringify({ password: value }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        error.textContent = payload?.error ?? 'Wrong password.';
+        input.select();
+        return;
+      }
+      overlay.remove();
+      boot();
+    } catch {
+      error.textContent = 'Could not reach the server.';
+    }
+  };
+
+  const overlay = el('div', { class: 'lock-overlay', id: 'lockScreen' },
+    el('form', { class: 'lock-card', onsubmit: submitPassword },
+      el('div', { class: 'lock-mark', svg: ICON.lock }),
+      el('h2', { class: 'lock-title', text: 'This Stash is private' }),
+      el('p', { class: 'lock-sub', text: 'Enter the password to continue.' }),
+      el('div', { class: 'capture-shell' },
+        input,
+        el('button', { class: 'go-button', type: 'submit' }, el('span', { class: 'go-label', text: 'Unlock' })),
+      ),
+      error,
+    ),
+  );
+
+  document.body.append(overlay);
+  requestAnimationFrame(() => input.focus());
+}
+
+/* ────────────────────────── Engine setup ───────────────────────────── */
+
 function showEngineSetup(message = null) {
   if (document.querySelector('#engineSetup')) return;
 
   const input = el('input', {
-    type: 'url',
-    id: 'engineInput',
-    class: 'capture-input',
+    type: 'url', id: 'engineInput', class: 'capture-input',
     placeholder: 'https://your-tunnel.trycloudflare.com',
-    spellcheck: 'false',
-    value: engineBase(),
-    'aria-label': 'Engine address',
+    spellcheck: 'false', value: engineBase(), 'aria-label': 'Engine address',
   });
-
-  const note = el('p', { class: 'capture-hint', id: 'engineMsg', text: message ?? '' });
+  const note = el('p', { class: 'capture-hint', text: message ?? '' });
   if (message) note.dataset.tone = 'error';
 
   const connect = async (event) => {
@@ -1147,413 +1276,13 @@ function showEngineSetup(message = null) {
   requestAnimationFrame(() => input.focus());
 }
 
-/* ─────────────────────────── Site sign-in ──────────────────────────── */
-
-const STEPS = [
-  ['Install the extension', 'In Chrome, add “Get cookies.txt LOCALLY” from the Chrome Web Store. It is open source and exports on your machine only.'],
-  ['Open the site, signed in', 'Go to instagram.com (or tiktok.com) in a tab where you are already logged in.'],
-  ['Export', 'Click the extension icon → Export. Pick Netscape format if it asks. A cookies.txt downloads.'],
-  ['Paste it below', 'Open the file in Notepad, select all, and paste here. Or drag the file straight onto this panel.'],
-];
-
-function renderCookieStatus(host, data) {
-  clear(host);
-  const sites = (data.sites ?? []).filter((s) => ['instagram', 'tiktok', 'youtube'].includes(s.id) || s.present);
-
-  host.append(
-    el('div', { class: 'cookie-sites' },
-      ...sites.map((site) => {
-        const state = site.signedIn ? 'in' : site.present ? 'partial' : 'out';
-        return el('span', { class: 'cookie-site', dataset: { state } },
-          el('i'),
-          site.label,
-          site.signedIn ? el('em', { text: 'signed in' })
-            : site.present ? el('em', { text: 'cookies only' })
-              : el('em', { text: '—' }),
-        );
-      }),
-    ),
-  );
-
-  if (data.installed) {
-    const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString() : null;
-    host.append(el('p', { class: 'cookie-meta' },
-      `${data.total} cookies across ${data.domains} domains`,
-      when ? ` · added ${when}` : '',
-    ));
-  }
-}
-
-async function openCookiePanel() {
-  if (document.querySelector('#cookiePanel')) return;
-
-  let data;
-  try {
-    data = await api('/api/cookies');
-  } catch {
-    toast('Could not read cookie status.', 'error');
-    return;
-  }
-
-  const statusHost = el('div');
-  const message = el('p', { class: 'capture-hint', id: 'cookieMsg' });
-
-  const textarea = el('textarea', {
-    class: 'cookie-input',
-    id: 'cookieInput',
-    placeholder: '# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t1800000000\tsessionid\t…',
-    spellcheck: 'false',
-    'aria-label': 'Paste cookies.txt contents',
-  });
-
-  const save = async () => {
-    const body = textarea.value.trim();
-    if (!body) { textarea.focus(); return; }
-    message.textContent = 'Saving…';
-    message.removeAttribute('data-tone');
-    try {
-      const result = await api('/api/cookies', { method: 'POST', body: { content: body } });
-      renderCookieStatus(statusHost, result);
-      textarea.value = '';
-      message.textContent = `Saved ${result.installedCount} cookies. Active immediately — no restart.`;
-      message.dataset.tone = 'good';
-      refreshCookieDot(result);
-      toast('Signed in. Try that link again.', 'good', 5000);
-    } catch (err) {
-      message.textContent = err.message;
-      message.dataset.tone = 'error';
-    }
-  };
-
-  const clearAll = async () => {
-    try {
-      const result = await api('/api/cookies', { method: 'DELETE' });
-      renderCookieStatus(statusHost, result);
-      message.textContent = 'Cookies removed.';
-      message.removeAttribute('data-tone');
-      refreshCookieDot(result);
-    } catch (err) {
-      message.textContent = err.message;
-      message.dataset.tone = 'error';
-    }
-  };
-
-  const close = () => overlay.remove();
-
-  const overlay = el('div', {
-    class: 'sheet-overlay',
-    id: 'cookiePanel',
-    onclick: (event) => { if (event.target === overlay) close(); },
-  },
-    el('div', { class: 'sheet' },
-      el('div', { class: 'sheet-head' },
-        el('div', {},
-          el('h2', { class: 'sheet-title', text: 'Sign in to sites' }),
-          el('p', { class: 'sheet-sub', text: 'Instagram and TikTok only serve logged-in clients. This gives Stash your session.' }),
-        ),
-        el('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close', onclick: close },
-          el('span', { svg: '<svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>' })),
-      ),
-
-      statusHost,
-
-      el('div', { class: 'notice', dataset: { tone: 'warn' } },
-        el('span', { class: 'notice-mark' }),
-        el('div', {},
-          el('h4', { text: 'Chrome cannot be read automatically' }),
-          el('p', { text: 'Since Chrome 127 the cookie store is encrypted with a key bound to the Chrome process, so no other program can read it — closing Chrome does not help. Exporting the file is the way around it.' }),
-        ),
-      ),
-
-      el('ol', { class: 'cookie-steps' },
-        ...STEPS.map(([title, detail]) => el('li', {},
-          el('strong', { text: title }),
-          el('span', { text: detail }),
-        )),
-      ),
-
-      textarea,
-      message,
-
-      el('div', { class: 'action-row' },
-        el('button', { class: 'download-button', type: 'button', onclick: save },
-          el('span', { svg: ICON.check }), 'Save cookies'),
-        el('button', { class: 'secondary-button', type: 'button', text: 'Remove', onclick: clearAll }),
-      ),
-
-      el('p', { class: 'cookie-warn', text: 'This file is your live session — treat it like a password. It is stored only on this machine, never uploaded, never committed to git, and never shown back to you.' }),
-    ),
-  );
-
-  // Drag a cookies.txt straight onto the panel.
-  overlay.addEventListener('dragover', (event) => { event.preventDefault(); overlay.dataset.drop = 'true'; });
-  overlay.addEventListener('dragleave', () => overlay.removeAttribute('data-drop'));
-  overlay.addEventListener('drop', async (event) => {
-    event.preventDefault();
-    overlay.removeAttribute('data-drop');
-    const file = event.dataTransfer?.files?.[0];
-    if (!file) return;
-    textarea.value = await file.text();
-    save();
-  });
-
-  document.body.append(overlay);
-  renderCookieStatus(statusHost, data);
-  requestAnimationFrame(() => textarea.focus());
-}
-
-function refreshCookieDot(data) {
-  const dot = $('cookieDot');
-  if (!dot) return;
-  const signedIn = (data?.sites ?? []).some((s) => s.signedIn);
-  dot.hidden = !signedIn;
-}
-
-$('cookieToggle').addEventListener('click', () => { openCookiePanel(); });
-
-/* ────────────────────────────── Activity ───────────────────────────── */
-
-const activitySection = $('activity');
-const activityList = $('activityList');
-const activityCount = $('activityCount');
-
-function openActivity() {
-  activitySection.hidden = false;
-  requestAnimationFrame(() => {
-    activitySection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
-}
-
-function upsertJob(job) {
-  state.jobs.set(job.id, job);
-  renderActivity();
-
-  if (job.status === 'done' && state.ownJobs.has(job.id) && !state.autoSaved.has(job.id)) {
-    state.autoSaved.add(job.id);
-    const single = job.files.length === 1 && !job.archive;
-    if (single) {
-      saveToDisk(job.files[0].url, job.files[0].name);
-      toast(`Saved ${job.files[0].name}`, 'good', 5000);
-    } else {
-      toast(`Ready — ${job.files.length} files. Use “Download all”.`, 'good', 6000);
-    }
-  }
-
-  if (job.status === 'error' && state.ownJobs.has(job.id) && !state.autoSaved.has(job.id)) {
-    state.autoSaved.add(job.id);
-    toast(job.error ?? 'The download failed.', 'error', 8000);
-  }
-}
-
-function saveToDisk(url, filename) {
-  // File paths come back relative to the engine, which may not be this origin.
-  const anchor = el('a', { href: apiUrl(url), download: filename ?? '', rel: 'noopener' });
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-}
-
-const ACTIVE_STATES = new Set(['queued', 'preparing', 'downloading', 'processing', 'packaging']);
-
-function renderActivity() {
-  const jobs = [...state.jobs.values()].sort((a, b) => b.createdAt - a.createdAt);
-
-  const active = jobs.filter((j) => ACTIVE_STATES.has(j.status)).length;
-  activityCount.hidden = active === 0;
-  activityCount.textContent = String(active);
-
-  if (!jobs.length) {
-    activitySection.hidden = true;
-    return;
-  }
-  activitySection.hidden = false;
-
-  clear(activityList);
-  for (const job of jobs) activityList.append(renderJob(job));
-}
-
-function renderJob(job) {
-  const isActive = ACTIVE_STATES.has(job.status);
-  const row = el('li', {
-    class: 'job',
-    dataset: { status: job.status, active: String(isActive) },
-  });
-
-  /* Artwork */
-  if (job.thumbnail) {
-    row.append(el('img', {
-      class: 'job-art', src: job.thumbnail, alt: '', loading: 'lazy',
-      referrerpolicy: 'no-referrer',
-      onerror: (event) => event.target.replaceWith(el('div', { class: 'job-art job-art-empty', svg: ICON.film })),
-    }));
-  } else {
-    row.append(el('div', { class: 'job-art job-art-empty', svg: ICON.film }));
-  }
-
-  /* Text */
-  const line = el('div', { class: 'job-line' });
-  const bits = [];
-
-  bits.push(el('span', { class: 'job-phase', text: job.error ?? job.phase ?? job.status }));
-
-  if (isActive && Number.isFinite(job.progress.percent)) {
-    bits.push(`${job.progress.percent.toFixed(job.progress.percent < 10 ? 1 : 0)}%`);
-  }
-  if (isActive && job.progress.speed) bits.push(`${bytes(job.progress.speed)}/s`);
-  if (isActive && job.progress.eta) bits.push(eta(job.progress.eta));
-
-  if (!isActive && job.files.length) {
-    const total = job.files.reduce((sum, f) => sum + f.size, 0);
-    bits.push(`${job.files.length} file${job.files.length === 1 ? '' : 's'}`);
-    if (bytes(total)) bits.push(bytes(total));
-  }
-  if (job.mode) bits.push(job.mode === 'thumbnail' ? 'cover' : job.mode);
-
-  bits.forEach((bit, index) => {
-    if (index > 0) line.append(el('span', { class: 'sep', text: '·' }));
-    line.append(bit);
-  });
-
-  row.append(
-    el('div', { class: 'job-body' },
-      el('div', { class: 'job-title', text: job.title, title: job.title }),
-      line,
-    ),
-  );
-
-  /* Actions */
-  const actions = el('div', { class: 'job-actions' });
-
-  if (isActive) {
-    actions.append(el('button', {
-      class: 'job-button icon-only danger', type: 'button', title: 'Cancel',
-      svg: ICON.stop,
-      onclick: () => api(`/api/jobs/${job.id}/cancel`, { method: 'POST' }).catch(() => {}),
-    }));
-  } else if (job.status === 'done') {
-    if (job.archive) {
-      actions.append(el('button', {
-        class: 'job-button primary', type: 'button',
-        onclick: () => saveToDisk(job.archive.url, job.archive.name),
-      }, el('span', { svg: ICON.archive }), `Download all · ${bytes(job.archive.size) ?? ''}`));
-    } else if (job.files.length === 1) {
-      actions.append(el('button', {
-        class: 'job-button primary', type: 'button',
-        onclick: () => saveToDisk(job.files[0].url, job.files[0].name),
-      }, el('span', { svg: ICON.download }), 'Save'));
-    }
-    actions.append(el('button', {
-      class: 'job-button icon-only danger', type: 'button', title: 'Remove',
-      svg: ICON.trash,
-      onclick: () => removeJob(job.id),
-    }));
-  } else {
-    actions.append(el('button', {
-      class: 'job-button icon-only', type: 'button', title: 'Try again',
-      svg: ICON.retry,
-      onclick: () => {
-        urlInput.value = job.url;
-        refreshBadge();
-        submit();
-      },
-    }));
-    actions.append(el('button', {
-      class: 'job-button icon-only danger', type: 'button', title: 'Remove',
-      svg: ICON.trash,
-      onclick: () => removeJob(job.id),
-    }));
-  }
-
-  row.append(actions);
-
-  /* Individual files, when there are several */
-  if (job.status === 'done' && job.files.length > 1) {
-    const files = el('div', { class: 'job-files' });
-    for (const file of job.files.slice(0, 24)) {
-      files.append(el('button', {
-        class: 'job-file', type: 'button', title: file.name,
-        onclick: () => saveToDisk(file.url, file.name),
-      }, el('span', { text: file.name }), bytes(file.size) ?? ''));
-    }
-    if (job.files.length > 24) {
-      files.append(el('span', { class: 'job-file', text: `+${job.files.length - 24} more` }));
-    }
-    row.append(files);
-  }
-
-  if (job.warnings?.length) {
-    row.append(el('div', { class: 'job-warnings', text: job.warnings.join(' · ') }));
-  }
-
-  /* Progress hairline */
-  const percent = Number.isFinite(job.progress.percent) ? job.progress.percent : (job.status === 'done' ? 100 : 0);
-  row.append(el('div', { class: 'job-bar' }, el('span', { style: `width:${Math.max(0, Math.min(100, percent))}%` })));
-
-  return row;
-}
-
-async function removeJob(id) {
-  state.jobs.delete(id);
-  renderActivity();
-  try { await api(`/api/jobs/${id}`, { method: 'DELETE' }); } catch { /* already gone */ }
-}
-
-$('clearFinished').addEventListener('click', async () => {
-  const finished = [...state.jobs.values()].filter((j) => !ACTIVE_STATES.has(j.status));
-  for (const job of finished) {
-    state.jobs.delete(job.id);
-    api(`/api/jobs/${job.id}`, { method: 'DELETE' }).catch(() => {});
-  }
-  renderActivity();
-});
-
-$('activityToggle').addEventListener('click', () => {
-  if (!state.jobs.size) {
-    toast('No downloads yet.', 'info', 2400);
-    return;
-  }
-  openActivity();
-});
-
-/* ───────────────────────── Live job updates ────────────────────────── */
-
-function connectEvents() {
-  let source;
-  let retry = 1000;
-
-  const open = () => {
-    source = new EventSource(apiUrl('/api/events'));
-
-    source.onopen = () => { retry = 1000; };
-
-    source.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.hello) return;
-        upsertJob(payload);
-      } catch { /* ignore malformed frame */ }
-    };
-
-    source.onerror = () => {
-      source.close();
-      setTimeout(open, retry);
-      retry = Math.min(retry * 2, 15_000);
-    };
-  };
-
-  open();
-}
-
 /* ─────────────────────────────── Theme ─────────────────────────────── */
 
 const THEME_KEY = 'stash:theme';
 
 function applyTheme(theme) {
-  if (theme === 'light' || theme === 'dark') {
-    document.documentElement.dataset.theme = theme;
-  } else {
-    document.documentElement.removeAttribute('data-theme');
-  }
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  else document.documentElement.removeAttribute('data-theme');
 }
 
 applyTheme(localStorage.getItem(THEME_KEY) ?? '');
@@ -1568,72 +1297,16 @@ $('themeToggle').addEventListener('click', () => {
 
 /* ────────────────────────────── Startup ────────────────────────────── */
 
-async function boot() {
-  if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) {
-    const key = $('pasteKey');
-    if (key) key.textContent = '⌘';
+function renderPlatformStrip(featured) {
+  const strip = $('platformStrip');
+  clear(strip);
+  for (const platform of featured) {
+    strip.append(el('li', {},
+      el('span', { class: 'platform-chip', style: `--chip:${platform.accent}` },
+        el('i'), platform.name),
+    ));
   }
-
-  try {
-    const info = await api('/api/platforms');
-    state.platforms = info.detect ?? [];
-    state.containers = info.containers;
-    state.ffmpeg = info.ffmpeg;
-    renderPlatformStrip(info.featured);
-  } catch {
-    state.containers = [{ id: 'mp4', label: 'MP4', detail: 'plays everywhere' }];
-  }
-
-  try {
-    const health = await api('/api/health');
-    if (health.locked) {
-      showLockScreen();
-      return;
-    }
-    state.ffmpeg = health.binaries.ffmpeg.ok;
-    showEngineBadge();
-
-    if (!health.binaries.ytdlp.ok) {
-      showStatus('yt-dlp missing', 'bad');
-      renderError('yt-dlp is not installed. Stop the server, run "npm run setup", then start it again.');
-    } else if (!health.binaries.ffmpeg.ok) {
-      showStatus('no ffmpeg', 'warn');
-    }
-  } catch (err) {
-    // No engine reachable. On a hosted page that is the expected first run,
-    // so ask for the address rather than showing a dead interface.
-    showEngineSetup(engineBase() ? 'That engine stopped responding.' : null);
-    return;
-  }
-
-  try {
-    refreshCookieDot(await api('/api/cookies'));
-  } catch { /* optional */ }
-
-  try {
-    const { jobs } = await api('/api/jobs');
-    for (const job of jobs) state.jobs.set(job.id, job);
-    if (jobs.length) { renderActivity(); state.autoSaved = new Set(jobs.map((j) => j.id)); }
-  } catch { /* nothing running */ }
-
-  connectEvents();
-  refreshBadge();
-  urlInput.focus();
-}
-
-/** Shows which engine a hosted page is talking to, and lets you change it. */
-function showEngineBadge() {
-  if (!isRemoteEngine()) return;
-  const pill = $('statusPill');
-  pill.hidden = false;
-  pill.dataset.tone = 'ok';
-  pill.style.cursor = 'pointer';
-  pill.title = `Engine: ${engineBase()} — click to change`;
-  pill.querySelector('.status-text').textContent = 'connected';
-  pill.onclick = () => {
-    setEngineBase('');
-    location.reload();
-  };
+  strip.append(el('li', {}, el('span', { class: 'platform-chip is-more', text: '+1800 more' })));
 }
 
 function showStatus(text, tone) {
@@ -1643,20 +1316,37 @@ function showStatus(text, tone) {
   pill.querySelector('.status-text').textContent = text;
 }
 
-function renderPlatformStrip(featured) {
-  const strip = $('platformStrip');
-  clear(strip);
-  for (const platform of featured) {
-    strip.append(
-      el('li', {},
-        el('span', { class: 'platform-chip', style: `--chip:${platform.accent}` },
-          el('i'),
-          platform.name,
-        ),
-      ),
-    );
+async function boot() {
+  if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) {
+    const key = $('pasteKey');
+    if (key) key.textContent = '⌘';
   }
-  strip.append(el('li', {}, el('span', { class: 'platform-chip is-more', text: '+1800 more' })));
+
+  try {
+    const health = await api('/api/health');
+    if (health.locked) {
+      showLockScreen();
+      return;
+    }
+    state.ffmpeg = health.binaries.ffmpeg.ok;
+    if (!health.binaries.ytdlp.ok) showStatus('yt-dlp missing', 'bad');
+    else if (!health.binaries.ffmpeg.ok) showStatus('no ffmpeg', 'warn');
+  } catch {
+    showEngineSetup(engineBase() ? 'That engine stopped responding.' : null);
+    return;
+  }
+
+  try {
+    const info = await api('/api/platforms');
+    state.platforms = info.detect ?? [];
+    state.containers = info.containers ?? [];
+    renderPlatformStrip(info.featured ?? []);
+  } catch {
+    state.containers = [{ id: 'mp4', label: 'MP4', detail: 'plays everywhere' }];
+  }
+
+  refreshBadge();
+  urlInput.focus();
 }
 
 boot();

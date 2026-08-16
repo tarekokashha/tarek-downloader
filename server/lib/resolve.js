@@ -1,7 +1,7 @@
 import { fetchInfo } from './ytdlp.js';
 import { buildFormatOptions, bestThumbnail } from './formats.js';
 import { resolveCatalog } from './catalog.js';
-import { resolveTikTok, toInfoShape, FALLBACK_NOTICE } from './fallback.js';
+import { resolveTikTok, toInfoShape } from './fallback.js';
 import config from '../config.js';
 
 /**
@@ -199,12 +199,9 @@ export async function resolveLink(analysis, { forcePlaylist = false, container =
     throw new Error('No downloadable media was found at that link.');
   }
 
+  // Nothing to announce: how a link was resolved is our problem, not the
+  // reader's. Only genuinely actionable notices reach the card.
   const notices = [];
-  if (usedFallback) notices.push(FALLBACK_NOTICE);
-  else {
-    const auth = authNotice(analysis);
-    if (auth) notices.push(auth);
-  }
 
   if (info.is_live) {
     notices.push({

@@ -945,6 +945,101 @@ kbd {
 .secondary-button:hover { color: var(--text); border-color: var(--line-strong); background: var(--bg-2); }
 .secondary-button svg { width: 16px; height: 16px; }
 
+/* ─────────────────── Inline progress and completion ────────────────── */
+
+.progress-row { display: flex; align-items: center; gap: 9px; margin-top: 22px; }
+
+.progress-block {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 48px;
+  padding: 9px 15px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.progress-label {
+  font-size: 0.87rem;
+  font-weight: 550;
+  letter-spacing: -0.012em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-detail {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.progress-track {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 320ms var(--ease), background var(--slow);
+}
+
+.saved-banner {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 48px;
+  padding: 9px 15px;
+  border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line));
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--good) 8%, transparent);
+  min-width: 0;
+  animation: rise var(--mid) both;
+}
+
+.saved-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--good);
+  color: var(--bg);
+}
+
+.saved-check svg { width: 13px; height: 13px; }
+.saved-banner strong { display: block; font-size: 0.88rem; font-weight: 600; letter-spacing: -0.012em; }
+
+.saved-name {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-error { margin-top: 18px; }
+
 /* ───────────────────────── Track list ──────────────────────────────── */
 
 .tracks { border-top: 1px solid var(--line); background: var(--bg-2); }
