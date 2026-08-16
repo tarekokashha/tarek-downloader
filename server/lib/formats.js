@@ -40,7 +40,12 @@ const hasAudioStream = (f) => isReal(f.acodec) && f.acodec !== 'none';
  */
 function isWatermarked(f) {
   const haystack = `${f.format_id ?? ''} ${f.format_note ?? ''} ${f.format ?? ''}`.toLowerCase();
-  return haystack.includes('watermark') || haystack.includes('download_addr');
+  if (haystack.includes('download_addr')) return true;
+  // "no watermark" / "without watermark" describe a clean stream, not a
+  // branded one — matching the bare substring would discard exactly the
+  // format we want to keep.
+  const cleaned = haystack.replace(/\b(no|non|without|un)[\s-]*watermark(ed)?\b/g, '');
+  return cleaned.includes('watermark');
 }
 
 /** Best available byte count for a format, estimated from bitrate if needed. */

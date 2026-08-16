@@ -6,6 +6,7 @@ import log from './log.js';
 import { baseArgs, download, readPhase, fetchInfo } from './ytdlp.js';
 import { audioPreset, genericVideoSelector, bestThumbnail, AUDIO_SOURCE_SELECTOR } from './formats.js';
 import { resolveCatalog, matchTrack, enrichTracks } from './catalog.js';
+import { resolveTikTok } from './fallback.js';
 import { hasFfmpeg } from './binaries.js';
 import {
   collectOutputs, createArchive, safeFilename, tagAudio, fetchCover, formatBytes,
@@ -246,6 +247,127 @@ async function packageIfNeeded(job, files) {
   }
 }
 
+/**
+ * Downloads a TikTok post through the public resolver.
+ *
+ * yt-dlp is still the fetcher — it is handed the direct CDN URLs, so retries,
+ * progress reporting and audio extraction all behave exactly as they do
+ * everywhere else. Only the *discovery* step is outsourced.
+ *
+ * @returns {Promise<boolean>} true when the job was completed here
+ */
+async function downloadTikTokFallback(job, plan) {
+  jobs.update(job, { status: 'preparing', phase: 'Resolving without an account' });
+
+  const post = await resolveTikTok(job.url, { signal: job.signal });
+  if (!post) return false;
+
+  const wantsAudio = plan.mode === 'audio';
+  const base = safeFilename(
+    `${post.uploader ? `${post.uploader} - ` : ''}${post.title}`,
+    `tiktok-${post.id || 'post'}`,
+  );
+
+  /** Each target is one direct URL to fetch into the job directory. */
+  const targets = [];
+  if (plan.mode === 'thumbnail') {
+    if (post.thumbnail) targets.push({ url: post.thumbnail, name: base });
+  } else if (wantsAudio) {
+    if (post.audio) targets.push({ url: post.audio, name: base });
+    else if (post.video) targets.push({ url: post.video, name: base });
+  } else if (post.isSlideshow) {
+    post.photos.forEach((photo, i) => {
+      targets.push({ url: photo, name: `${String(i + 1).padStart(2, '0')} ${base}` });
+    });
+    if (post.audio) targets.push({ url: post.audio, name: `${base} (audio)` });
+  } else {
+    // MP4 is the "plays everywhere" choice, so take the H.264 stream there;
+    // TikTok's HD variant is HEVC and needs an extra codec on Windows.
+    const stream = plan.container === 'mp4'
+      ? (post.videoStandard || post.videoHd || post.video)
+      : (post.videoHd || post.video || post.videoStandard);
+    if (stream) targets.push({ url: stream, name: base });
+  }
+
+  if (!targets.length) return false;
+
+  const preset = audioPreset(plan.quality);
+  let index = 0;
+
+  for (const target of targets) {
+    if (job.signal.aborted) throw Object.assign(new Error('Canceled.'), { canceled: true });
+    index += 1;
+
+    const args = [
+      ...baseArgs(),
+      '--no-playlist', '--no-mtime', '--no-part', '--no-overwrites',
+      '--concurrent-fragments', String(config.concurrentFragments),
+      // TikTok's CDN rejects requests that arrive without a matching referer.
+      '--referer', 'https://www.tiktok.com/',
+      '--paths', job.dir,
+      '--output', `${escapeTemplate(target.name)}.%(ext)s`,
+    ];
+
+    if (wantsAudio) {
+      args.push('--extract-audio', '--audio-format', preset.format);
+      if (preset.quality && preset.quality !== '0') args.push('--audio-quality', preset.quality);
+    }
+    if (config.maxFilesizeMb > 0) args.push('--max-filesize', `${config.maxFilesizeMb}M`);
+
+    const share = (percent) =>
+      Math.min(100, (((index - 1) + (percent ?? 0) / 100) / targets.length) * 100);
+
+    try {
+      await download(args, {
+        url: target.url,
+        platform: 'tiktok',
+        signal: job.signal,
+        cwd: job.dir,
+        onProgress(update) {
+          if (update.type === 'postprocess') {
+            jobs.update(job, { status: 'processing', phase: 'Converting' });
+            return;
+          }
+          jobs.update(job, {
+            status: 'downloading',
+            phase: targets.length > 1 ? `Item ${index} of ${targets.length}` : 'Downloading',
+            progress: {
+              percent: share(update.percent),
+              downloaded: update.downloaded,
+              total: update.total,
+              speed: update.speed,
+              eta: update.eta,
+            },
+          });
+        },
+      });
+    } catch (err) {
+      if (job.signal.aborted) throw Object.assign(new Error('Canceled.'), { canceled: true });
+      log.warn(`TikTok fallback item failed: ${err.message}`);
+    }
+  }
+
+  const files = await collectOutputs(job.dir);
+  if (!producedRealMedia(files, plan.mode, { carousel: true })) return false;
+
+  const archive = await packageIfNeeded(job, files);
+
+  jobs.update(job, {
+    status: 'done',
+    phase: 'Ready',
+    title: post.title || job.title,
+    subtitle: post.uploader || job.subtitle,
+    thumbnail: post.thumbnail || job.thumbnail,
+    files,
+    archive,
+    progress: { percent: 100, speed: null, eta: null },
+  });
+
+  jobs.addWarning(job, 'TikTok blocked the direct request, so this was resolved through a public lookup service.');
+  log.ok(`TikTok (fallback) · ${files.length} file(s) · ${post.title}`);
+  return true;
+}
+
 /* ══════════════════════════ Direct downloads ══════════════════════════ */
 
 export async function runMediaJob(job, plan) {
@@ -279,6 +401,14 @@ export async function runMediaJob(job, plan) {
     });
   } catch (err) {
     if (job.signal.aborted) throw Object.assign(new Error('Canceled.'), { canceled: true });
+
+    // TikTok blocks yt-dlp outright when logged out. Resolve the direct media
+    // URL through the public lookup and fetch that instead, so pasting a link
+    // still just works with no account.
+    if (plan.analysis.platform === 'tiktok') {
+      const rescued = await downloadTikTokFallback(job, plan);
+      if (rescued) return;
+    }
 
     // With --ignore-errors a playlist can exit non-zero while still having
     // produced files. Keep what genuinely landed — but a leftover thumbnail

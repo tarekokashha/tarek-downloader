@@ -1,6 +1,7 @@
 import { fetchInfo } from './ytdlp.js';
 import { buildFormatOptions, bestThumbnail } from './formats.js';
 import { resolveCatalog } from './catalog.js';
+import { resolveTikTok, toInfoShape, FALLBACK_NOTICE } from './fallback.js';
 import config from '../config.js';
 
 /** True when the server has any cookie source configured. */
@@ -14,24 +15,19 @@ const hasCookies = () => Boolean(config.cookiesFile || config.cookiesFromBrowser
 function authNotice(analysis) {
   if (!analysis.prefersCookies || hasCookies()) return null;
 
-  return analysis.platform === 'instagram'
-    ? {
-        tone: 'warn',
-        title: 'Instagram needs you signed in',
-        action: 'cookies',
-        body:
-          'Instagram serves almost nothing to logged-out clients, so this will fail. '
-          + 'Use “Sign in to sites” to paste a cookies.txt export — it takes about a minute '
-          + 'and works immediately, no restart.',
-      }
-    : {
-        tone: 'warn',
-        title: 'TikTok may bot-check this',
-        action: 'cookies',
-        body:
-          'TikTok blocks anonymous requests intermittently. Use “Sign in to sites” to paste '
-          + 'a cookies.txt export and it becomes reliable.',
-      };
+  // TikTok no longer warrants a warning: when yt-dlp is blocked, the public
+  // resolver picks it up automatically and the download just works.
+  if (analysis.platform !== 'instagram') return null;
+
+  return {
+    tone: 'warn',
+    title: 'Instagram needs a signed-in session',
+    action: 'cookies',
+    body:
+      'Instagram is the one site that serves nothing at all to logged-out clients — there is '
+      + 'no way around it. Paste a cookies.txt once under “Sign in to sites” and it works for '
+      + 'everyone using this app from then on. Nobody else has to sign in.',
+  };
 }
 
 /** `20240517` -> `17 May 2024` */
@@ -132,12 +128,27 @@ export async function resolveLink(analysis, { forcePlaylist = false, container =
   // behind one URL; without playlist extraction only the first is ever seen.
   const wantsPlaylist = forcePlaylist || analysis.isCollection || analysis.carousel;
 
-  let info = await fetchInfo(analysis.url, {
-    playlist: wantsPlaylist,
-    flat: !analysis.carousel || analysis.isCollection,
-    signal,
-    platform: analysis.platform,
-  });
+  let info;
+  let usedFallback = false;
+
+  try {
+    info = await fetchInfo(analysis.url, {
+      playlist: wantsPlaylist,
+      flat: !analysis.carousel || analysis.isCollection,
+      signal,
+      platform: analysis.platform,
+    });
+  } catch (err) {
+    // TikTok hands anonymous clients an empty stub, so yt-dlp cannot see the
+    // post at all. Rather than demanding a login, try a public lookup.
+    if (analysis.platform !== 'tiktok') throw err;
+
+    const fallback = await resolveTikTok(analysis.url, { signal });
+    if (!fallback) throw err;
+
+    info = toInfoShape(fallback, analysis.url);
+    usedFallback = true;
+  }
 
   // A carousel holding exactly one item is just a normal post — unwrap it so
   // the user gets the full quality menu instead of a one-row checklist.
@@ -198,8 +209,11 @@ export async function resolveLink(analysis, { forcePlaylist = false, container =
   }
 
   const notices = [];
-  const auth = authNotice(analysis);
-  if (auth) notices.push(auth);
+  if (usedFallback) notices.push(FALLBACK_NOTICE);
+  else {
+    const auth = authNotice(analysis);
+    if (auth) notices.push(auth);
+  }
 
   if (info.is_live) {
     notices.push({

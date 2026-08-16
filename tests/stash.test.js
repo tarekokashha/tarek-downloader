@@ -178,6 +178,36 @@ test('never offers a watermarked TikTok stream', () => {
   assert.ok(selectors.includes('h264_540p_988392-0'), 'clean stream should be selected');
 });
 
+test('a format described as "no watermark" is kept, not filtered', () => {
+  // The filter matched the bare substring, so labelling a clean stream
+  // "no watermark" caused it to be thrown away — the fallback resolver then
+  // offered no download options at all.
+  const info = {
+    duration: 101,
+    formats: [
+      fmt({ format_id: 'clean', vcodec: 'h264', acodec: 'aac', height: 1024, tbr: 1500, format_note: 'no watermark' }),
+    ],
+  };
+  const { video } = buildFormatOptions(info, { container: 'mp4' });
+  assert.equal(video.length, 1, 'the clean stream must survive the watermark filter');
+  assert.match(video[0].selector, /^clean/);
+
+  for (const note of ['without watermark', 'non-watermarked', 'unwatermarked']) {
+    const one = buildFormatOptions({
+      duration: 10,
+      formats: [fmt({ format_id: 'x', vcodec: 'h264', acodec: 'aac', height: 720, tbr: 900, format_note: note })],
+    }, { container: 'mp4' });
+    assert.equal(one.video.length, 1, `"${note}" must not be treated as watermarked`);
+  }
+
+  // And a genuinely watermarked one is still rejected.
+  const branded = buildFormatOptions({
+    duration: 10,
+    formats: [fmt({ format_id: 'y', vcodec: 'h264', acodec: 'aac', height: 720, tbr: 900, format_note: 'watermarked' })],
+  }, { container: 'mp4' });
+  assert.equal(branded.video.length, 0);
+});
+
 test('pairs video with a stereo audio track, never 5.1', () => {
   const info = {
     duration: 600,

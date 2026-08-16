@@ -101,6 +101,13 @@ export const config = {
    */
   concurrentFragments: Math.min(16, Math.max(1, num('CONCURRENT_FRAGMENTS', 4))),
 
+  /**
+   * Allow public no-auth lookup services when yt-dlp cannot reach a site
+   * anonymously (currently TikTok). Only the pasted URL is ever sent, and only
+   * after yt-dlp has already failed. Set to false to stay entirely first-party.
+   */
+  fallbackResolvers: str('FALLBACK_RESOLVERS', 'true') !== 'false',
+
   maxConcurrentJobs: Math.max(1, num('MAX_CONCURRENT_JOBS', 3)),
   maxPlaylistItems: Math.max(1, num('MAX_PLAYLIST_ITEMS', 200)),
   fileTtlMinutes: num('FILE_TTL_MINUTES', 180),
