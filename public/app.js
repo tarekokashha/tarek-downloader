@@ -180,12 +180,13 @@ function detect(input) {
  * writes the address into `window.STASH_ENGINE`.
  */
 const ENGINE_KEY = 'stash:engine';
+const ACCESS_KEY = 'stash:key';
 
 function engineBase() {
   const stored = localStorage.getItem(ENGINE_KEY);
   if (stored) return stored.replace(/\/$/, '');
   const baked = typeof window !== 'undefined' ? window.STASH_ENGINE : null;
-  if (baked && baked !== '__STASH_ENGINE__') return String(baked).replace(/\/$/, '');
+  if (baked) return String(baked).replace(/\/$/, '');
   return '';
 }
 
@@ -198,13 +199,38 @@ function setEngineBase(url) {
 const isRemoteEngine = () => Boolean(engineBase());
 const apiUrl = (path) => engineBase() + path;
 
+/**
+ * The session token for a remote engine.
+ *
+ * A password-protected engine normally answers with an HttpOnly cookie, which
+ * is the right thing when the page and the engine share an origin. They do not
+ * here, and a cross-origin cookie is both omitted by us and blocked by most
+ * browsers as third-party — so a remote engine hands the token back in the
+ * unlock response instead and we present it as a header from then on.
+ */
+const engineKey = () => (isRemoteEngine() ? localStorage.getItem(ACCESS_KEY) || '' : '');
+
+function setEngineKey(token) {
+  if (token) localStorage.setItem(ACCESS_KEY, token);
+  else localStorage.removeItem(ACCESS_KEY);
+}
+
+function authHeaders() {
+  const key = engineKey();
+  return key ? { 'x-stash-key': key } : {};
+}
+
 /* ───────────────────────────── Networking ──────────────────────────── */
 
 async function api(path, options = {}) {
   const res = await fetch(apiUrl(path), {
-    headers: options.body ? { 'content-type': 'application/json' } : {},
-    credentials: isRemoteEngine() ? 'omit' : 'same-origin',
     ...options,
+    headers: {
+      ...(options.body ? { 'content-type': 'application/json' } : {}),
+      ...authHeaders(),
+      ...options.headers,
+    },
+    credentials: isRemoteEngine() ? 'omit' : 'same-origin',
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
@@ -213,6 +239,8 @@ async function api(path, options = {}) {
 
   if (!res.ok) {
     if (res.status === 401 && payload?.locked) {
+      // Whatever we were holding is spent — a restart drops every session.
+      setEngineKey('');
       showLockScreen();
       throw new Error('Signed out.');
     }
@@ -235,6 +263,7 @@ async function api(path, options = {}) {
  */
 async function saveFile(fileUrl, filename, onProgress) {
   const res = await fetch(apiUrl(fileUrl), {
+    headers: authHeaders(),
     credentials: isRemoteEngine() ? 'omit' : 'same-origin',
   });
   if (!res.ok) throw new Error(`Could not fetch the file (${res.status}).`);
@@ -1147,13 +1176,17 @@ function followJob(id, onUpdate) {
       if (!ACTIVE_STATES.has(job.status)) finish(resolve, job);
     };
 
-    try {
-      source = new EventSource(apiUrl(`/api/jobs/${id}/events`));
-      source.onmessage = (event) => {
-        try { consider(JSON.parse(event.data)); } catch { /* ignore frame */ }
-      };
-      source.onerror = () => { try { source.close(); } catch { /* noop */ } };
-    } catch { /* polling still covers it */ }
+    // EventSource cannot carry a header, so it cannot present the access key
+    // to a remote engine. Skip it in that case and let polling do the work.
+    if (!engineKey()) {
+      try {
+        source = new EventSource(apiUrl(`/api/jobs/${id}/events`));
+        source.onmessage = (event) => {
+          try { consider(JSON.parse(event.data)); } catch { /* ignore frame */ }
+        };
+        source.onerror = () => { try { source.close(); } catch { /* noop */ } };
+      } catch { /* polling still covers it */ }
+    }
 
     // Polling is the safety net, not the primary path.
     poller = setInterval(async () => {
@@ -1194,6 +1227,8 @@ function showLockScreen(message = null) {
         input.select();
         return;
       }
+      // Cross-origin the cookie cannot follow us, so keep the token instead.
+      if (payload?.token) setEngineKey(payload.token);
       overlay.remove();
       boot();
     } catch {
@@ -1248,8 +1283,9 @@ function showEngineSetup(message = null) {
       boot();
     } catch (err) {
       setEngineBase(previous);
-      note.textContent = /failed|fetch/i.test(err.message)
-        ? 'Could not reach that address. Check the engine is running and the URL is exact.'
+      note.textContent = /failed|fetch|network/i.test(err.message)
+        ? 'Could not reach that address. Check the engine is running, the URL is exact, '
+          + `and that CORS_ORIGINS on the engine lists ${location.origin}.`
         : err.message;
       note.dataset.tone = 'error';
     }

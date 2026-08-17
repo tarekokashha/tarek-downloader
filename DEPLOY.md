@@ -3,24 +3,51 @@
 ## Vercel
 
 Vercel cannot run the downloader — that needs a process which outlives a
-request and a real disk. What it can do is stand in front of one.
+request and a real disk. What it can do is serve the interface, which is plain
+HTML, CSS and JS. `vercel.json` already says how: build with
+`scripts/build-static.js`, serve `.vercel-static`. There is nothing to
+configure to get the page up.
 
-`vercel.json` proxies every path to the engine, so `your-app.vercel.app`
-serves the real interface and the real API from whatever machine is actually
-running Stash. Because visitors only ever talk to the Vercel origin, there is
-no cross-origin anything: no CORS, no blocked downloads, and the interface is
-always whatever the engine is serving, with nothing to rebuild when it changes.
+The page then needs to be told where its engine is. Two ways:
 
-Change the two `destination` values when the engine address changes.
+- **Leave it unset.** On first load the page asks for the engine's address and
+  remembers it in that browser. This is the right choice for a Cloudflare quick
+  tunnel, because you can paste the new address after a restart without
+  redeploying anything.
+- **Bake it in.** Set `STASH_ENGINE` to an `https://` address in the Vercel
+  project's environment variables and redeploy. Only worth it for an address
+  that does not change — a named tunnel or a container URL.
 
-Two things to know. Every byte your users download passes through Vercel, so it
-counts against that account's bandwidth — fine for a handful of people, not for
-a public service. And the site only works while the engine is up.
+Then, on the engine, set `CORS_ORIGINS` to your Vercel address:
 
-For a deployment where Vercel serves the interface *itself* rather than proxying
-it, set `STASH_ENGINE` and use `scripts/build-static.js` as the build command
-with `.vercel-static` as the output directory. That keeps large downloads off
-Vercel's bandwidth, at the cost of needing `CORS_ORIGINS` set on the engine.
+```
+CORS_ORIGINS=https://your-app.vercel.app
+```
+
+Without it the browser refuses every call and the page will keep asking you to
+connect. Preview deployments each get their own hostname, so
+`https://*.vercel.app` is accepted too — one `*` matching anything up to the
+next `/`. Only use that on an engine with `ACCESS_PASSWORD` set.
+
+Because the interface and the engine are on different origins, the engine's
+session cookie cannot reach it. Unlocking a password-protected engine from a
+hosted page therefore hands the browser a token, which it keeps and presents on
+every later call. Nothing to configure; it just means signing in on the hosted
+page and on the engine's own address are separate.
+
+### Do not proxy the site through Vercel
+
+An earlier version of `vercel.json` rewrote every path — `/` included — to the
+engine. It reads well: one origin, no CORS. It also means **the whole site is
+down whenever the engine is**, and a Cloudflare quick tunnel hostname is
+recycled on every restart, so the rewrite ends up pointing at a name that no
+longer exists and Vercel answers `502 DNS_HOSTNAME_NOT_FOUND` — the page
+included, so there is nothing left to explain what went wrong.
+
+Serving the interface from Vercel instead means an unreachable engine only
+costs you the connect prompt, and it keeps every downloaded byte off Vercel's
+bandwidth. `scripts/build-static.js` refuses a `trycloudflare.com` address in
+`STASH_ENGINE` for the same reason.
 
 ---
 
@@ -36,26 +63,41 @@ Run both together (`npm start`) and the interface talks to the engine on the
 same origin. Host them apart and the interface needs to be told where its engine
 is, via `STASH_ENGINE` at build time or the connect screen on first load.
 
-`vercel.json` builds the interface only. The engine must run somewhere else —
-your own machine behind a tunnel is both the cheapest and the most reliable,
-because these sites bot-check datacentre addresses and not residential ones.
+`vercel.json` builds the interface only. The engine must run somewhere else.
 
 Whichever host serves the interface must be listed in the engine's
 `CORS_ORIGINS`, or the browser will refuse the calls.
 
 ---
 
-Two routes for the engine. **Cloudflare Tunnel is the better one for a downloader** — it runs
-on your own connection, so sites see a residential IP instead of a cloud range
-and stop bot-checking you. Northflank is the answer if you need it up when your
-machine is off.
+## Which route to take
+
+Two routes for the engine, and the honest trade between them is **reliability of
+downloads against reliability of uptime**:
+
+| | Cloudflare Tunnel (your machine) | Northflank (a container) |
+| --- | --- | --- |
+| Cost | free | free (card verified, not charged) |
+| Up when your PC is off | **no** | **yes** |
+| Downloads succeed | best — residential IP, rarely bot-checked | needs cookies; datacentre IPs get challenged |
+| Bandwidth | unmetered | free allowance, then $0.06/GB |
+
+**If you need it working when your machine is off, take Route 2.** The tunnel is
+the better downloader, but it is a door into a machine that has to be awake for
+anyone to walk through it.
+
+Neither route can be run on Cloudflare Workers or Pages: yt-dlp and ffmpeg are
+native binaries and a download outlives the request that started it. Cloudflare
+*Containers* can run the image, but they need the Workers Paid plan, sleep when
+idle onto a fresh empty disk, and meter egress — Northflank is free and stays
+awake, so it wins for this.
 
 ---
 
-# Route 1 — Cloudflare Tunnel (recommended)
+# Route 1 — Cloudflare Tunnel
 
-Free, no card, no bandwidth meter, and the most reliable downloads you can get.
-`cloudflared` is already installed.
+Free, no card, no bandwidth meter, and the most reliable downloads you can get —
+**as long as the machine is on**. `cloudflared` is already installed.
 
 ## Try it right now
 
@@ -182,12 +224,26 @@ because a residential IP is not treated as a bot.
    | --- | --- |
    | `ACCESS_PASSWORD` | something long and random |
    | `TRUST_PROXY` | `1` |
+   | `CORS_ORIGINS` | `https://your-app.vercel.app` |
+
+   `CORS_ORIGINS` is what lets the page on Vercel call this engine; without it
+   the browser refuses every request and the page keeps asking you to connect.
+   Preview deployments each get their own hostname, so `https://*.vercel.app`
+   is accepted too — reasonable here only because `ACCESS_PASSWORD` is set.
 
    The Dockerfile already sets conservative defaults for everything else
    (1 concurrent job, 1 GB max file, 2 GB disk cap, 30-minute file TTL).
 
 7. **Deploy.** First build takes 3–5 minutes; the image is roughly 400 MB
    because it carries ffmpeg.
+
+8. **Point the interface at it.** Northflank's URL is stable, so it is worth
+   baking in: in the Vercel project, set `STASH_ENGINE` to
+   `https://stash--yourproject.code.run` and redeploy. Visitors then land on a
+   page that already knows where its engine is.
+
+   Skipping this is fine too — the page will simply ask for the address on
+   first load and remember it in that browser.
 
 ---
 
@@ -248,3 +304,14 @@ curl -s https://YOUR-URL/api/health
 
 Expect `"ytdlp":{"ok":true}`, `"ffmpeg":{"ok":true}` and, if you set a password,
 `"locked":true`.
+
+Then check the browser can reach it from Vercel, which is a different question —
+`curl` does not care about CORS and your browser does:
+
+```bash
+curl -s -D- -o /dev/null -H "Origin: https://your-app.vercel.app" \
+  https://YOUR-URL/api/health | grep -i access-control-allow-origin
+```
+
+A line comes back when `CORS_ORIGINS` matches. Nothing comes back when it does
+not, and that is exactly what a browser will refuse to act on.

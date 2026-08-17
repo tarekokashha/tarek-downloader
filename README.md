@@ -120,6 +120,10 @@ stream need a process that survives between requests, downloads outlive a
 60-second function limit, and `/tmp` is gone by the time the browser asks for
 the file.
 
+Vercel *can* host the interface, which is plain HTML, CSS and JS. It asks for
+the engine's address on first load, or takes it from `STASH_ENGINE` at build
+time, and the engine needs `CORS_ORIGINS` set to the Vercel address in return.
+
 **→ Step-by-step instructions: [DEPLOY.md](DEPLOY.md)**
 
 ### Where it runs, as of August 2026
@@ -139,6 +143,7 @@ the file.
 | --- | --- |
 | `ACCESS_PASSWORD` | **Set this.** Without it, anyone who finds the URL runs downloads on your bandwidth and your bill. |
 | `TRUST_PROXY=1` | So rate limiting sees real client IPs behind the platform's proxy. |
+| `CORS_ORIGINS` | The site serving the interface — your Vercel address. Without it the browser refuses every call. |
 | `COOKIES_CONTENT` | Paste your `cookies.txt` contents — required for Instagram and TikTok. |
 | `SPOTIFY_CLIENT_ID` / `SECRET` | Full Spotify playlists. |
 | `MAX_DISK_USAGE_MB` | Keep below your container's disk. |

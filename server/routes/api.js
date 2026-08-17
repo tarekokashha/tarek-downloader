@@ -15,6 +15,7 @@ import {
   isProtected, hasValidSession, verifyPassword,
   setSessionCookie, clearSessionCookie, destroySession,
 } from '../lib/auth.js';
+import { normaliseOrigin } from '../lib/cors.js';
 import {
   status as cookieStatus, install as installCookies,
   remove as removeCookies, browserExtractionViable,
@@ -55,7 +56,20 @@ router.post('/unlock', (req, res) => {
   }
   const secure = req.secure || req.get('x-forwarded-proto') === 'https';
   setSessionCookie(res, result.token, secure);
-  res.json({ ok: true });
+
+  /*
+   * The cookie only reaches us again when the page shares our origin. A page
+   * hosted elsewhere — the static interface on Vercel — cannot send it: it
+   * omits credentials, and browsers block third-party cookies anyway. Hand
+   * that caller the token in the body so it can present `x-stash-key` instead.
+   * Same-origin callers get nothing back, keeping the token HttpOnly.
+   */
+  const origin = req.get('origin');
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const crossOrigin =
+    Boolean(origin) && normaliseOrigin(origin) !== normaliseOrigin(`${proto}://${req.get('host')}`);
+
+  res.json(crossOrigin ? { ok: true, token: result.token } : { ok: true });
 });
 
 router.post('/lock', (req, res) => {

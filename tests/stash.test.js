@@ -16,6 +16,7 @@ import { safeFilename, isSafeChildPath, formatBytes } from '../server/lib/media.
 import { parseTimecode } from '../server/lib/pipeline.js';
 import { catalogInternals } from '../server/lib/catalog.js';
 import { friendlyError } from '../server/lib/ytdlp.js';
+import { originAllowed } from '../server/lib/cors.js';
 
 /* ═══════════════════════════ URL safety ═══════════════════════════ */
 
@@ -545,4 +546,31 @@ test('variantSet detects the traits that must match', () => {
   assert.ok(variantSet('Song (Tiesto Remix)').has('remix'));
   assert.ok(variantSet('Song - Acoustic').has('acoustic'));
   assert.equal(variantSet('Song').size, 0);
+});
+
+/* ═════════════════════════ Split hosting ═════════════════════════ */
+
+test('CORS matches an origin exactly, ignoring case and trailing slash', () => {
+  const allowed = ['https://stash.vercel.app'];
+  assert.equal(originAllowed('https://stash.vercel.app', allowed), true);
+  assert.equal(originAllowed('https://stash.vercel.app/', allowed), true);
+  assert.equal(originAllowed('https://STASH.vercel.app', allowed), true);
+  assert.equal(originAllowed('http://stash.vercel.app', allowed), false);
+  assert.equal(originAllowed('https://stash.vercel.app.evil.com', allowed), false);
+  assert.equal(originAllowed('', allowed), false);
+});
+
+test('a wildcard covers changing preview hostnames but not other sites', () => {
+  const allowed = ['https://*.vercel.app'];
+  assert.equal(originAllowed('https://stash-abc123.vercel.app', allowed), true);
+  assert.equal(originAllowed('https://a.b.vercel.app', allowed), true);
+  assert.equal(originAllowed('https://vercel.app.evil.com', allowed), false);
+  assert.equal(originAllowed('https://evil.com', allowed), false);
+  assert.equal(originAllowed('http://stash.vercel.app', allowed), false);
+});
+
+test('a bare star allows anything, an empty list nothing', () => {
+  assert.equal(originAllowed('https://anywhere.example', ['*']), true);
+  assert.equal(originAllowed('https://anywhere.example', []), false);
+  assert.equal(originAllowed('https://anywhere.example', ['', '  ']), false);
 });
