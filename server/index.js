@@ -4,6 +4,7 @@ import config from './config.js';
 import log from './lib/log.js';
 import apiRouter from './routes/api.js';
 import { initBinaries, binaryStatus } from './lib/binaries.js';
+import { originAllowed } from './lib/cors.js';
 import { startCleanup, purgeOnStart } from './lib/cleanup.js';
 
 const app = express();
@@ -31,8 +32,7 @@ app.use((req, res, next) => {
     return;
   }
 
-  const allowed = config.corsOrigins;
-  const permitted = allowed.includes('*') || allowed.includes(origin.replace(/\/$/, ''));
+  const permitted = originAllowed(origin, config.corsOrigins);
 
   if (permitted) {
     res.setHeader('Access-Control-Allow-Origin', origin);

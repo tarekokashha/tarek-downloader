@@ -3,24 +3,51 @@
 ## Vercel
 
 Vercel cannot run the downloader — that needs a process which outlives a
-request and a real disk. What it can do is stand in front of one.
+request and a real disk. What it can do is serve the interface, which is plain
+HTML, CSS and JS. `vercel.json` already says how: build with
+`scripts/build-static.js`, serve `.vercel-static`. There is nothing to
+configure to get the page up.
 
-`vercel.json` proxies every path to the engine, so `your-app.vercel.app`
-serves the real interface and the real API from whatever machine is actually
-running Stash. Because visitors only ever talk to the Vercel origin, there is
-no cross-origin anything: no CORS, no blocked downloads, and the interface is
-always whatever the engine is serving, with nothing to rebuild when it changes.
+The page then needs to be told where its engine is. Two ways:
 
-Change the two `destination` values when the engine address changes.
+- **Leave it unset.** On first load the page asks for the engine's address and
+  remembers it in that browser. This is the right choice for a Cloudflare quick
+  tunnel, because you can paste the new address after a restart without
+  redeploying anything.
+- **Bake it in.** Set `STASH_ENGINE` to an `https://` address in the Vercel
+  project's environment variables and redeploy. Only worth it for an address
+  that does not change — a named tunnel or a container URL.
 
-Two things to know. Every byte your users download passes through Vercel, so it
-counts against that account's bandwidth — fine for a handful of people, not for
-a public service. And the site only works while the engine is up.
+Then, on the engine, set `CORS_ORIGINS` to your Vercel address:
 
-For a deployment where Vercel serves the interface *itself* rather than proxying
-it, set `STASH_ENGINE` and use `scripts/build-static.js` as the build command
-with `.vercel-static` as the output directory. That keeps large downloads off
-Vercel's bandwidth, at the cost of needing `CORS_ORIGINS` set on the engine.
+```
+CORS_ORIGINS=https://your-app.vercel.app
+```
+
+Without it the browser refuses every call and the page will keep asking you to
+connect. Preview deployments each get their own hostname, so
+`https://*.vercel.app` is accepted too — one `*` matching anything up to the
+next `/`. Only use that on an engine with `ACCESS_PASSWORD` set.
+
+Because the interface and the engine are on different origins, the engine's
+session cookie cannot reach it. Unlocking a password-protected engine from a
+hosted page therefore hands the browser a token, which it keeps and presents on
+every later call. Nothing to configure; it just means signing in on the hosted
+page and on the engine's own address are separate.
+
+### Do not proxy the site through Vercel
+
+An earlier version of `vercel.json` rewrote every path — `/` included — to the
+engine. It reads well: one origin, no CORS. It also means **the whole site is
+down whenever the engine is**, and a Cloudflare quick tunnel hostname is
+recycled on every restart, so the rewrite ends up pointing at a name that no
+longer exists and Vercel answers `502 DNS_HOSTNAME_NOT_FOUND` — the page
+included, so there is nothing left to explain what went wrong.
+
+Serving the interface from Vercel instead means an unreachable engine only
+costs you the connect prompt, and it keeps every downloaded byte off Vercel's
+bandwidth. `scripts/build-static.js` refuses a `trycloudflare.com` address in
+`STASH_ENGINE` for the same reason.
 
 ---
 

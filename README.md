@@ -120,6 +120,10 @@ stream need a process that survives between requests, downloads outlive a
 60-second function limit, and `/tmp` is gone by the time the browser asks for
 the file.
 
+Vercel *can* host the interface, which is plain HTML, CSS and JS. It asks for
+the engine's address on first load, or takes it from `STASH_ENGINE` at build
+time, and the engine needs `CORS_ORIGINS` set to the Vercel address in return.
+
 **→ Step-by-step instructions: [DEPLOY.md](DEPLOY.md)**
 
 ### Where it runs, as of August 2026
