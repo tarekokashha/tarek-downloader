@@ -63,26 +63,41 @@ Run both together (`npm start`) and the interface talks to the engine on the
 same origin. Host them apart and the interface needs to be told where its engine
 is, via `STASH_ENGINE` at build time or the connect screen on first load.
 
-`vercel.json` builds the interface only. The engine must run somewhere else —
-your own machine behind a tunnel is both the cheapest and the most reliable,
-because these sites bot-check datacentre addresses and not residential ones.
+`vercel.json` builds the interface only. The engine must run somewhere else.
 
 Whichever host serves the interface must be listed in the engine's
 `CORS_ORIGINS`, or the browser will refuse the calls.
 
 ---
 
-Two routes for the engine. **Cloudflare Tunnel is the better one for a downloader** — it runs
-on your own connection, so sites see a residential IP instead of a cloud range
-and stop bot-checking you. Northflank is the answer if you need it up when your
-machine is off.
+## Which route to take
+
+Two routes for the engine, and the honest trade between them is **reliability of
+downloads against reliability of uptime**:
+
+| | Cloudflare Tunnel (your machine) | Northflank (a container) |
+| --- | --- | --- |
+| Cost | free | free (card verified, not charged) |
+| Up when your PC is off | **no** | **yes** |
+| Downloads succeed | best — residential IP, rarely bot-checked | needs cookies; datacentre IPs get challenged |
+| Bandwidth | unmetered | free allowance, then $0.06/GB |
+
+**If you need it working when your machine is off, take Route 2.** The tunnel is
+the better downloader, but it is a door into a machine that has to be awake for
+anyone to walk through it.
+
+Neither route can be run on Cloudflare Workers or Pages: yt-dlp and ffmpeg are
+native binaries and a download outlives the request that started it. Cloudflare
+*Containers* can run the image, but they need the Workers Paid plan, sleep when
+idle onto a fresh empty disk, and meter egress — Northflank is free and stays
+awake, so it wins for this.
 
 ---
 
-# Route 1 — Cloudflare Tunnel (recommended)
+# Route 1 — Cloudflare Tunnel
 
-Free, no card, no bandwidth meter, and the most reliable downloads you can get.
-`cloudflared` is already installed.
+Free, no card, no bandwidth meter, and the most reliable downloads you can get —
+**as long as the machine is on**. `cloudflared` is already installed.
 
 ## Try it right now
 
@@ -209,12 +224,26 @@ because a residential IP is not treated as a bot.
    | --- | --- |
    | `ACCESS_PASSWORD` | something long and random |
    | `TRUST_PROXY` | `1` |
+   | `CORS_ORIGINS` | `https://your-app.vercel.app` |
+
+   `CORS_ORIGINS` is what lets the page on Vercel call this engine; without it
+   the browser refuses every request and the page keeps asking you to connect.
+   Preview deployments each get their own hostname, so `https://*.vercel.app`
+   is accepted too — reasonable here only because `ACCESS_PASSWORD` is set.
 
    The Dockerfile already sets conservative defaults for everything else
    (1 concurrent job, 1 GB max file, 2 GB disk cap, 30-minute file TTL).
 
 7. **Deploy.** First build takes 3–5 minutes; the image is roughly 400 MB
    because it carries ffmpeg.
+
+8. **Point the interface at it.** Northflank's URL is stable, so it is worth
+   baking in: in the Vercel project, set `STASH_ENGINE` to
+   `https://stash--yourproject.code.run` and redeploy. Visitors then land on a
+   page that already knows where its engine is.
+
+   Skipping this is fine too — the page will simply ask for the address on
+   first load and remember it in that browser.
 
 ---
 
@@ -275,3 +304,14 @@ curl -s https://YOUR-URL/api/health
 
 Expect `"ytdlp":{"ok":true}`, `"ffmpeg":{"ok":true}` and, if you set a password,
 `"locked":true`.
+
+Then check the browser can reach it from Vercel, which is a different question —
+`curl` does not care about CORS and your browser does:
+
+```bash
+curl -s -D- -o /dev/null -H "Origin: https://your-app.vercel.app" \
+  https://YOUR-URL/api/health | grep -i access-control-allow-origin
+```
+
+A line comes back when `CORS_ORIGINS` matches. Nothing comes back when it does
+not, and that is exactly what a browser will refuse to act on.

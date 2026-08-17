@@ -143,6 +143,7 @@ time, and the engine needs `CORS_ORIGINS` set to the Vercel address in return.
 | --- | --- |
 | `ACCESS_PASSWORD` | **Set this.** Without it, anyone who finds the URL runs downloads on your bandwidth and your bill. |
 | `TRUST_PROXY=1` | So rate limiting sees real client IPs behind the platform's proxy. |
+| `CORS_ORIGINS` | The site serving the interface — your Vercel address. Without it the browser refuses every call. |
 | `COOKIES_CONTENT` | Paste your `cookies.txt` contents — required for Instagram and TikTok. |
 | `SPOTIFY_CLIENT_ID` / `SECRET` | Full Spotify playlists. |
 | `MAX_DISK_USAGE_MB` | Keep below your container's disk. |

@@ -26,13 +26,20 @@ services:
         value: "4096"
       - key: RATE_LIMIT_PER_MINUTE
         value: "30"
-      # Set this in the Render dashboard, not here — it is a secret.
+      # Set these in the Render dashboard, not here — they are secrets.
       - key: ACCESS_PASSWORD
         sync: false
       - key: SPOTIFY_CLIENT_ID
         sync: false
       - key: SPOTIFY_CLIENT_SECRET
         sync: false
-      # Netscape cookies.txt contents, if you need Instagram or TikTok.
-      - key: COOKIES_FILE
+      # Netscape cookies.txt *contents*. There is no filesystem here to upload
+      # a file to, so the contents go in the variable and Stash writes them to
+      # disk at boot. Required for Instagram, and for TikTok and YouTube from a
+      # datacenter address.
+      - key: COOKIES_CONTENT
+        sync: false
+      # The site allowed to call this engine from a browser — your Vercel
+      # address, since the interface is served there.
+      - key: CORS_ORIGINS
         sync: false
