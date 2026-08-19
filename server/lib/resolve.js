@@ -111,6 +111,22 @@ export async function resolveLink(analysis, { forcePlaylist = false, container =
       /** Album, year and track numbers were recovered without credentials. */
       enriched: Boolean(catalog.enriched),
       totalAvailable: catalog.totalAvailable ?? tracks.length,
+      /*
+       * Worth interrupting for: without credentials Spotify hands over the
+       * first 50 tracks of any playlist and does not mention the rest, so a
+       * 200-track playlist would quietly download as a quarter of itself.
+       */
+      notices: catalog.truncated
+        ? [{
+            tone: 'warn',
+            title: `Only the first ${tracks.length} tracks are visible`,
+            body:
+              'Spotify caps its public playlist data at 50 tracks. If this playlist is longer, '
+              + 'the rest cannot be seen from here. Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET '
+              + 'to the engine .env — they are free from developer.spotify.com/dashboard — and the '
+              + 'whole playlist becomes available.',
+          }]
+        : [],
     };
   }
 

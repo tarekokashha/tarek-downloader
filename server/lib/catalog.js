@@ -15,6 +15,9 @@ import config from '../config.js';
 import { searchYouTube } from './ytdlp.js';
 import log from './log.js';
 
+/** Hard cap Spotify applies to the track list on its public embed page. */
+const EMBED_TRACK_CAP = 50;
+
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
@@ -247,6 +250,12 @@ async function spotifyViaEmbed(type, id) {
     subtitle: entity.subtitle ?? (type === 'album' ? 'Album' : 'Playlist'),
     cover,
     degraded: true,
+    /*
+     * Spotify's public embed returns exactly 50 tracks and never says how many
+     * the playlist really holds, so a 200-track playlist silently arrives as
+     * its first 50. Flag the cap rather than quietly handing over a slice.
+     */
+    truncated: list.length >= EMBED_TRACK_CAP,
     totalAvailable: entity.trackList.length,
     tracks: list.slice(0, config.maxPlaylistItems).map((t, i) => ({
       title: t.title ?? t.name,
