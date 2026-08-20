@@ -6,11 +6,25 @@ import log from './log.js';
 
 const isWindows = process.platform === 'win32';
 
+/** Why the most recent probe came back empty, so boot can explain itself. */
+let lastProbeFailure = null;
+
+/** Why yt-dlp specifically was unusable at boot, kept for the health route. */
+let ytdlpFailure = null;
+
 /**
  * Runs a command purely to read its version string. Never throws.
+ *
+ * The timeout is a parameter because these binaries are not in the same class.
+ * ffmpeg is native and answers immediately. The yt-dlp standalone build is a
+ * PyInstaller bundle that unpacks its own Python interpreter on every run,
+ * which on a small or CPU-throttled container takes far longer than any native
+ * binary — and a probe that gives up too early reports the downloader as
+ * missing when it was only slow to wake.
+ *
  * @returns {Promise<string|null>}
  */
-function probe(command, args = ['--version'], cwd) {
+function probe(command, args = ['--version'], { cwd, timeoutMs = 15_000 } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -19,7 +33,8 @@ function probe(command, args = ['--version'], cwd) {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
-    } catch {
+    } catch (err) {
+      lastProbeFailure = `could not start ${command}: ${err.message}`;
       resolve(null);
       return;
     }
@@ -27,15 +42,30 @@ function probe(command, args = ['--version'], cwd) {
     let out = '';
     const timer = setTimeout(() => {
       try { child.kill(); } catch { /* already gone */ }
+      lastProbeFailure =
+        `${command} produced no version within ${Math.round(timeoutMs / 1000)}s — ` +
+        'starved of CPU, or killed for exceeding the container memory limit';
       resolve(null);
-    }, 15_000);
+    }, timeoutMs);
 
     child.stdout.on('data', (chunk) => { out += chunk; });
     child.stderr.on('data', (chunk) => { out += chunk; });
-    child.on('error', () => { clearTimeout(timer); resolve(null); });
-    child.on('close', (code) => {
+    child.on('error', (err) => {
       clearTimeout(timer);
-      resolve(code === 0 ? out.trim().split(/\r?\n/)[0].trim() : null);
+      lastProbeFailure = `${command} failed to run: ${err.message}`;
+      resolve(null);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(out.trim().split(/\r?\n/)[0].trim());
+        return;
+      }
+      const tail = out.trim().split(/\r?\n/).slice(-3).join(' / ') || '(no output)';
+      lastProbeFailure = signal
+        ? `${command} was killed by ${signal} — almost always the container memory limit`
+        : `${command} exited ${code}: ${tail}`;
+      resolve(null);
     });
   });
 }
@@ -76,13 +106,38 @@ export const tools = {
 };
 
 export async function initBinaries({ quiet = false } = {}) {
+  /*
+   * The standalone yt-dlp build unpacks a bundled Python on every invocation,
+   * so it needs a far more generous window than a native binary. Fifteen
+   * seconds is ample on a laptop and nowhere near enough on a small hosted
+   * container, where losing that race makes a downloader that is merely slow
+   * to start look like one that was never installed.
+   */
+  const YTDLP_TIMEOUT_MS = 60_000;
+
+  const failures = [];
   for (const candidate of ytdlpCandidates()) {
-    const version = await probe(candidate.command, [...candidate.prefixArgs, '--version']);
+    lastProbeFailure = null;
+    const version = await probe(
+      candidate.command,
+      [...candidate.prefixArgs, '--version'],
+      { timeoutMs: YTDLP_TIMEOUT_MS },
+    );
     if (version) {
       tools.ytdlp = { ...candidate, version, jsRuntime: false };
       break;
     }
+    if (lastProbeFailure) failures.push(lastProbeFailure);
   }
+
+  /*
+   * Report the candidate that actually got as far as running. The list ends
+   * in generic fallbacks (`yt-dlp` on PATH, `python -m yt_dlp`) which are
+   * absent on most machines, so their "could not start" is expected noise —
+   * and would otherwise bury the real reason the configured binary failed.
+   */
+  const absent = (f) => f.startsWith('could not start') || f.includes('ENOENT');
+  ytdlpFailure = tools.ytdlp ? null : (failures.find((f) => !absent(f)) ?? failures[0] ?? null);
 
   /*
    * YouTube deciphers stream URLs with a JavaScript challenge. yt-dlp only
@@ -94,10 +149,12 @@ export async function initBinaries({ quiet = false } = {}) {
     const help = await probe(
       tools.ytdlp.command,
       [...tools.ytdlp.prefixArgs, '--help'],
+      { timeoutMs: YTDLP_TIMEOUT_MS },
     );
     const supportsFlag = await probe(
       tools.ytdlp.command,
       [...tools.ytdlp.prefixArgs, '--js-runtimes', `node:${process.execPath}`, '--version'],
+      { timeoutMs: YTDLP_TIMEOUT_MS },
     );
     tools.ytdlp.jsRuntime = Boolean(supportsFlag) || Boolean(help && help.includes('--js-runtimes'));
   }
@@ -124,7 +181,12 @@ export async function initBinaries({ quiet = false } = {}) {
 
   if (!quiet) {
     if (tools.ytdlp) log.ok(`yt-dlp ${tools.ytdlp.version}`);
-    else log.error('yt-dlp not found — run: npm run setup');
+    else {
+      log.error('yt-dlp not found — run: npm run setup');
+      // On a hosted container "not found" is usually the wrong story: the
+      // binary is present and never finished starting. Say which it was.
+      if (ytdlpFailure) log.error(`  last attempt: ${ytdlpFailure}`);
+    }
     if (tools.ffmpeg) log.ok(`ffmpeg ${tools.ffmpeg.version}`);
     else log.warn('ffmpeg not found — merging and audio conversion will be unavailable');
   }
@@ -155,7 +217,15 @@ export function requireFfmpeg() {
 
 export function binaryStatus() {
   return {
-    ytdlp: tools.ytdlp ? { ok: true, version: tools.ytdlp.version } : { ok: false },
+    /*
+     * When yt-dlp is missing, say why. On a hosted container the operator
+     * cannot always attach a shell, and "ok: false" alone cannot distinguish
+     * a binary that is absent from one that was killed for exceeding memory
+     * or never got enough CPU to answer.
+     */
+    ytdlp: tools.ytdlp
+      ? { ok: true, version: tools.ytdlp.version }
+      : { ok: false, ...(ytdlpFailure ? { detail: ytdlpFailure } : {}) },
     ffmpeg: tools.ffmpeg ? { ok: true, version: tools.ffmpeg.version } : { ok: false },
   };
 }
