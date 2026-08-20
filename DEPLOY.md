@@ -36,23 +36,36 @@ Run both together (`npm start`) and the interface talks to the engine on the
 same origin. Host them apart and the interface needs to be told where its engine
 is, via `STASH_ENGINE` at build time or the connect screen on first load.
 
-`vercel.json` builds the interface only. The engine must run somewhere else —
-your own machine behind a tunnel is both the cheapest and the most reliable,
-because these sites bot-check datacentre addresses and not residential ones.
+The engine must run somewhere else, and the two options trade against each
+other. A machine of your own behind a tunnel gives the most reliable downloads,
+because these sites bot-check datacentre addresses and not residential ones —
+but it is only reachable while that machine is awake. A hosted container is
+reachable regardless, at the cost of needing cookies to look logged in.
 
 Whichever host serves the interface must be listed in the engine's
 `CORS_ORIGINS`, or the browser will refuse the calls.
 
 ---
 
-Two routes for the engine. **Cloudflare Tunnel is the better one for a downloader** — it runs
-on your own connection, so sites see a residential IP instead of a cloud range
-and stop bot-checking you. Northflank is the answer if you need it up when your
-machine is off.
+Two routes for the engine, and the choice comes down to one question: does it
+have to be up when your own machine is off?
+
+**If yes — Northflank.** It is the only one of the two that survives you closing
+your laptop, which is the whole reason to host the engine rather than tunnel to
+it. Skip to that section.
+
+**If no — Cloudflare Tunnel.** It runs on your own connection, so sites see a
+residential IP instead of a cloud range and stop bot-checking you. Downloads are
+noticeably more reliable this way. But a tunnel only *exposes* a machine; it
+never *runs* one, so the moment that machine sleeps the public URL dies.
+
+A quick tunnel (`npm run tunnel`) is worse still: the hostname is random and
+changes on every restart, so anything pointing at it breaks on reboot even while
+the machine is awake.
 
 ---
 
-# Route 1 — Cloudflare Tunnel (recommended)
+# Cloudflare Tunnel — best downloads, needs a machine left on
 
 Free, no card, no bandwidth meter, and the most reliable downloads you can get.
 `cloudflared` is already installed.
@@ -127,7 +140,7 @@ Access → Applications*) to require a login with your email — free for up to
 
 ---
 
-# Route 2 — Northflank
+# Northflank — always on, nothing of yours left running
 
 Northflank's free Sandbox tier gives you **always-on compute with no sleeping**
 and two free services — which, since Railway and Fly closed their free tiers and

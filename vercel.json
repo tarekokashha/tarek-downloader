@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
 
   "rewrites": [
-    { "source": "/", "destination": "https://allergy-past-sim-automatically.trycloudflare.com/" },
-    { "source": "/:path*", "destination": "https://allergy-past-sim-automatically.trycloudflare.com/:path*" }
+    { "source": "/", "destination": "https://p01--tarek-downloader--z5zjlg5nzdf6.code.run/" },
+    { "source": "/:path*", "destination": "https://p01--tarek-downloader--z5zjlg5nzdf6.code.run/:path*" }
   ]
 }

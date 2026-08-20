@@ -20,10 +20,17 @@ RUN apt-get update \
       tini \
  && rm -rf /var/lib/apt/lists/*
 
-# yt-dlp's official standalone Linux build. It bundles its own Python,
-# so the image needs no interpreter of its own.
+# yt-dlp's official standalone Linux build. It bundles its own Python, so the
+# image needs no interpreter of its own. The binary is architecture-specific,
+# so pick the one matching the host — arm64 covers Oracle's Ampere free tier
+# and the cheaper ARM instances most clouds now sell.
 ARG YTDLP_VERSION=latest
-RUN curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/${YTDLP_VERSION}/download/yt-dlp_linux" \
+RUN case "$(dpkg --print-architecture)" in \
+      amd64) YTDLP_BIN=yt-dlp_linux ;; \
+      arm64) YTDLP_BIN=yt-dlp_linux_aarch64 ;; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/${YTDLP_VERSION}/download/${YTDLP_BIN}" \
       -o /usr/local/bin/yt-dlp \
  && chmod 0755 /usr/local/bin/yt-dlp \
  && /usr/local/bin/yt-dlp --version
