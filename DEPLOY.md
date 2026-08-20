@@ -152,10 +152,15 @@ option for a container that must stay running.
 ## Before you start: the two things that will bite you
 
 **1. A downloader is pure egress.** Every file travels twice: the source sends
-it to your container, then your container sends it to you. A 500 MB video costs
-about 1 GB of transfer. Northflank requires a card on file and bills egress
-beyond the free allowance at $0.06/GB, so an unguarded public instance is a bill
-waiting to happen.
+it to your container, then your container sends it on to whoever asked for it.
+Only the second leg is billed — ingress is free, and Northflank charges
+**$0.06/GB egress with no free allowance**, so the meter runs from the very
+first download rather than after some threshold.
+
+That puts a 500 MB video at roughly three cents every time someone pulls it,
+and 100 GB in a month at about $6. Pocket change for a few people you know;
+a genuine bill if the URL ever circulates. Which is the entire argument for
+the password below.
 
 **Set `ACCESS_PASSWORD`.** It is the single most important variable here. Stash
 prints a loud warning at startup if it is bound publicly without one.
