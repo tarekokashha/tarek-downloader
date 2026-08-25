@@ -1322,6 +1322,21 @@ async function boot() {
     if (key) key.textContent = '⌘';
   }
 
+  // A previously-connected engine address can go stale — a tunnel that
+  // stopped running, an engine that moved to a new host. Before trusting a
+  // stored one, check whether this origin now serves the API itself: a
+  // self-hosted engine always does, and so does a front end that proxies to
+  // one server-side (as vercel.json can). When it does, the stored address
+  // is both unnecessary and, if stale, the only thing standing between this
+  // visit and a working page.
+  if (engineBase()) {
+    try {
+      const res = await fetch('/api/health', { credentials: 'same-origin' });
+      const payload = await res.json().catch(() => null);
+      if (res.ok && payload?.ok) setEngineBase('');
+    } catch { /* nothing serves the API on this origin — keep the stored engine */ }
+  }
+
   try {
     const health = await api('/api/health');
     if (health.locked) {
