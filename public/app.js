@@ -177,14 +177,18 @@ function detect(input) {
 /**
  * Where the download engine lives. Same origin when you run Stash yourself;
  * elsewhere when the interface is hosted separately, in which case the deploy
- * writes the address into `window.STASH_ENGINE`.
+ * stamps the address into the `stash-engine` meta tag.
  */
 const ENGINE_KEY = 'stash:engine';
 
 function engineBase() {
   const stored = localStorage.getItem(ENGINE_KEY);
   if (stored) return stored.replace(/\/$/, '');
-  const baked = typeof window !== 'undefined' ? window.STASH_ENGINE : null;
+  // A meta tag, not an inline script: the engine serves script-src 'self',
+  // so an inline assignment is blocked and the address never arrives.
+  const meta = document.querySelector('meta[name="stash-engine"]');
+  // window.STASH_ENGINE stays honoured so an already-stamped page keeps working.
+  const baked = meta?.content ?? (typeof window !== 'undefined' ? window.STASH_ENGINE : null);
   if (baked && baked !== '__STASH_ENGINE__') return String(baked).replace(/\/$/, '');
   return '';
 }
