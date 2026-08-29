@@ -7,7 +7,10 @@ services:
     name: tarek-downloader
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter          # "free" also works; it sleeps when idle
+    # Free gives 512 MB RAM and 100 GB/month of egress, but spins down
+    # after 15 minutes idle — the next visitor waits ~50s for a cold start.
+    # Move to starter if that wait is unacceptable.
+    plan: free
     region: frankfurt      # oregon | frankfurt | singapore | ohio | virginia
     healthCheckPath: /api/health
     autoDeploy: true
@@ -17,15 +20,22 @@ services:
       - key: TRUST_PROXY
         value: "1"
       - key: MAX_CONCURRENT_JOBS
-        value: "2"
+        value: "1"
       - key: FILE_TTL_MINUTES
-        value: "45"
+        value: "15"
+      # ffmpeg needs room to merge separate video and audio streams, so the
+      # peak is roughly twice the finished file. 512 MB of RAM is the binding
+      # constraint here, not the disk.
       - key: MAX_FILESIZE_MB
-        value: "2048"
+        value: "500"
       - key: MAX_DISK_USAGE_MB
-        value: "4096"
+        value: "1024"
       - key: RATE_LIMIT_PER_MINUTE
-        value: "30"
+        value: "20"
+      - key: CONCURRENT_FRAGMENTS
+        value: "1"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=256"
       # Set this in the Render dashboard, not here — it is a secret.
       - key: ACCESS_PASSWORD
         sync: false
