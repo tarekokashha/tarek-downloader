@@ -16,17 +16,17 @@ export const AUDIO_PRESETS = [
   { id: 'mp3-320', label: 'MP3', detail: '320 kbps', format: 'mp3', quality: '320K', kbps: 320, recommended: true },
   { id: 'mp3-256', label: 'MP3', detail: '256 kbps', format: 'mp3', quality: '256K', kbps: 256 },
   { id: 'mp3-192', label: 'MP3', detail: '192 kbps', format: 'mp3', quality: '192K', kbps: 192 },
-  { id: 'mp3-128', label: 'MP3', detail: '128 kbps · small', format: 'mp3', quality: '128K', kbps: 128 },
-  { id: 'm4a', label: 'M4A', detail: 'AAC · Apple native', format: 'm4a', quality: '0', kbps: 192 },
-  { id: 'opus', label: 'OPUS', detail: 'best per byte', format: 'opus', quality: '0', kbps: 160 },
-  { id: 'flac', label: 'FLAC', detail: 'lossless container', format: 'flac', quality: '0', kbps: 900 },
-  { id: 'wav', label: 'WAV', detail: 'uncompressed', format: 'wav', quality: '0', kbps: 1411 },
+  { id: 'mp3-128', label: 'MP3', detail: '128 kbps', format: 'mp3', quality: '128K', kbps: 128 },
+  { id: 'm4a', label: 'M4A', detail: 'best on Apple devices', format: 'm4a', quality: '0', kbps: 192 },
+  { id: 'opus', label: 'OPUS', detail: 'smallest file', format: 'opus', quality: '0', kbps: 160 },
+  { id: 'flac', label: 'FLAC', detail: 'lossless', format: 'flac', quality: '0', kbps: 900 },
+  { id: 'wav', label: 'WAV', detail: 'studio quality', format: 'wav', quality: '0', kbps: 1411 },
 ];
 
 export const CONTAINERS = [
   { id: 'mp4', label: 'MP4', detail: 'plays everywhere' },
   { id: 'mkv', label: 'MKV', detail: 'keeps every track' },
-  { id: 'webm', label: 'WEBM', detail: 'open codecs' },
+  { id: 'webm', label: 'WEBM', detail: 'open format' },
 ];
 
 const isReal = (value) => value !== undefined && value !== null && value !== 'none' && value !== '';
@@ -245,7 +245,7 @@ export function buildFormatOptions(info, { container = 'mp4' } = {}) {
     recommended: Boolean(preset.recommended),
     /** Truthful note when the target bitrate exceeds what the source holds. */
     note: sourceKbps > 0 && preset.kbps > sourceKbps + 32 && preset.format !== 'flac' && preset.format !== 'wav'
-      ? `source is ~${sourceKbps} kbps`
+      ? `no better than the ${sourceKbps} kbps source`
       : null,
   }));
 
