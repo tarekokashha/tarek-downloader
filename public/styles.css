@@ -1529,21 +1529,6 @@ kbd {
 .lock-card .capture-hint { text-align: left; margin-top: 10px; min-height: 1.2em; }
 .lock-card .capture-hint:empty { min-height: 0; }
 
-/* ────────────────────────────── Footer ─────────────────────────────── */
-
-.footer { position: relative; z-index: 2; border-top: 1px solid var(--line); margin-top: 40px; }
-
-.footer-inner {
-  max-width: var(--shell);
-  margin: 0 auto;
-  padding: 26px 24px 40px;
-  display: grid;
-  gap: 8px;
-}
-
-.footer-note { font-size: 0.82rem; color: var(--text-2); }
-.footer-legal { font-size: 0.75rem; color: var(--text-3); max-width: 74ch; line-height: 1.55; }
-
 /* ──────────────────────────── Responsive ───────────────────────────── */
 
 @media (max-width: 860px) {
