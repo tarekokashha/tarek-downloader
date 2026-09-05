@@ -671,10 +671,7 @@ function renderResult(result) {
       el('span', { text: mode === 'audio' ? 'Audio quality' : 'Video quality' }),
     );
     if (mode === 'video' && result.generic) {
-      label.append(el('span', { class: 'field-note', text: 'per-item best match' }));
-    }
-    if (mode === 'audio' && result.formats.sourceAudioKbps) {
-      label.append(el('span', { class: 'field-note', text: `source ≈ ${result.formats.sourceAudioKbps} kbps` }));
+      label.append(el('span', { class: 'field-note', text: 'best available for each item' }));
     }
 
     const options = el('div', { class: 'options', role: 'group' });
@@ -783,7 +780,7 @@ function renderResult(result) {
         select.append(el('option', {
           value: container.id,
           selected: container.id === state.choice.container,
-          text: `${container.label} — ${container.detail}`,
+          text: `${container.label} · ${container.detail}`,
         }));
       }
       inline.append(el('label', { class: 'inline-field' }, el('span', { text: 'Container' }), select));
